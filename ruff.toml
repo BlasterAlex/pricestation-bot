@@ -3,3 +3,4 @@ select = ["E", "F", "I"]
 
 [lint.per-file-ignores]
 "tests/*" = ["F811"]
+"db/models/*" = ["F821"]

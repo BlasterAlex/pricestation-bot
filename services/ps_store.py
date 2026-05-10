@@ -1,6 +1,3 @@
-import aiohttp
-
-
 async def search_games(query: str, region: str) -> list[dict]:
     raise NotImplementedError
 

@@ -11,7 +11,9 @@ async def get_active_pairs(session: AsyncSession) -> list[tuple[int, int]]:
     return result.all()
 
 
-async def get_latest_price(session: AsyncSession, game_id: int, region_id: int) -> Price | None:
+async def get_latest_price(
+    session: AsyncSession, game_id: int, region_id: int
+) -> Price | None:
     result = await session.execute(
         select(Price)
         .where(Price.game_id == game_id, Price.region_id == region_id)
