@@ -16,3 +16,6 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     subscriptions: Mapped[list["Subscription"]] = relationship(back_populates="user")
+    regions: Mapped[list["Region"]] = relationship(
+        secondary="user_regions", back_populates="users"
+    )
