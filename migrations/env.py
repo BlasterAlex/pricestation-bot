@@ -4,9 +4,9 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 
+import db.models  # noqa: F401 — register all models
 from config import settings
 from db.base import Base
-import db.models  # noqa: F401 — register all models
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

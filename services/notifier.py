@@ -1,7 +1,14 @@
 from aiogram import Bot
 
 
-async def send_price_drop(bot: Bot, telegram_id: int, game_title: str, old_price: float, new_price: float, currency: str) -> None:
+async def send_price_drop(
+    bot: Bot,
+    telegram_id: int,
+    game_title: str,
+    old_price: float,
+    new_price: float,
+    currency: str,
+) -> None:
     diff = old_price - new_price
     pct = round(diff / old_price * 100)
     text = (

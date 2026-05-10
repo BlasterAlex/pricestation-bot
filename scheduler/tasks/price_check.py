@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import logging
 
+from aiogram import Bot
 from sqlalchemy import select
 
-from db.models import Game, Notification, Price, Region, Subscription
+from config import settings
+from db.models import Game, Notification, Price, Region, Subscription, User
 from db.session import AsyncSessionFactory
 from services import notifier, price, ps_store
 
@@ -32,15 +36,24 @@ async def _check_pair(session, game_id: int, region_id: int) -> None:
     session.add(Price(game_id=game_id, region_id=region_id, amount=current_amount))
 
     if latest and current_amount < float(latest.amount):
-        await _notify_subscribers(session, game_id, region_id, float(latest.amount), current_amount, region.currency, game.title)
+        await _notify_subscribers(
+            session, game_id, region_id,
+            float(latest.amount), current_amount,
+            region.currency, game.title,
+        )
 
     await session.commit()
 
 
-async def _notify_subscribers(session, game_id, region_id, old_price, new_price, currency, title) -> None:
-    from aiogram import Bot
-    from config import settings
-
+async def _notify_subscribers(
+    session,
+    game_id: int,
+    region_id: int,
+    old_price: float,
+    new_price: float,
+    currency: str,
+    title: str,
+) -> None:
     result = await session.execute(
         select(Subscription).where(
             Subscription.game_id == game_id,
@@ -52,9 +65,13 @@ async def _notify_subscribers(session, game_id, region_id, old_price, new_price,
     bot = Bot(token=settings.BOT_TOKEN)
     try:
         for sub in subscriptions:
-            user = await session.get(__import__("db.models", fromlist=["User"]).User, sub.user_id)
-            if user and (sub.target_price is None or new_price <= float(sub.target_price)):
-                await notifier.send_price_drop(bot, user.telegram_id, title, old_price, new_price, currency)
+            user = await session.get(User, sub.user_id)
+            if user and (
+                sub.target_price is None or new_price <= float(sub.target_price)
+            ):
+                await notifier.send_price_drop(
+                    bot, user.telegram_id, title, old_price, new_price, currency
+                )
                 session.add(Notification(
                     user_id=sub.user_id,
                     subscription_id=sub.id,

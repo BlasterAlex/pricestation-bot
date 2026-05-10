@@ -1,3 +1,4 @@
+
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Numeric, func
@@ -19,4 +20,6 @@ class Subscription(Base):
     user: Mapped["User"] = relationship(back_populates="subscriptions")
     game: Mapped["Game"] = relationship(back_populates="subscriptions")
     region: Mapped["Region"] = relationship(back_populates="subscriptions")
-    notifications: Mapped[list["Notification"]] = relationship(back_populates="subscription")
+    notifications: Mapped[list["Notification"]] = relationship(
+        back_populates="subscription"
+    )
