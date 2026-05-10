@@ -1,0 +1,25 @@
+services:
+  db_test:
+    container_name: db_test
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pricestation
+      POSTGRES_PASSWORD: pricestation
+      POSTGRES_DB: pricestation_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pricestation -d pricestation_test"]
+      interval: 5s
+      retries: 5
+
+  test:
+    container_name: test
+    build: ..
+    command: pytest
+    environment:
+      BOT_TOKEN: fake_token_for_tests
+      DATABASE_URL: postgresql+asyncpg://pricestation:pricestation@db_test:5432/pricestation_test
+    depends_on:
+      db_test:
+        condition: service_healthy

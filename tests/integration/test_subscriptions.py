@@ -9,7 +9,7 @@ from services.price import get_active_pairs, get_latest_price
 async def subscription(session: AsyncSession, user, game, region):
     sub = Subscription(user_id=user.id, game_id=game.id, region_id=region.id)
     session.add(sub)
-    await session.commit()
+    await session.flush()
     return sub
 
 
