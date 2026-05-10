@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     SCHEDULER_INTERVAL_HOURS: int = 4
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file="deploy/.env", env_file_encoding="utf-8")
 
 
 settings = Settings()
