@@ -1,6 +1,8 @@
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from bot.formatters import TYPE_EMOJI, locale_flag
+
 _MAX_RESULTS = 20
 
 
@@ -10,11 +12,12 @@ def ps_regions_keyboard(
     builder = InlineKeyboardBuilder()
     count = 0
     for country in countries:
+        flag = locale_flag(country["locale"])
         if country["locale"] in tracked_locales:
-            builder.button(text=f"✓ {country['name']}", callback_data="noop")
+            builder.button(text=f"✓ {flag} {country['name']}", callback_data="noop")
         else:
             builder.button(
-                text=country["name"],
+                text=f"{flag} {country['name']}",
                 callback_data=f"region_add:{country['locale']}",
             )
         count += 1
@@ -27,9 +30,22 @@ def ps_regions_keyboard(
 def user_regions_keyboard(regions: list) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for region in regions:
+        flag = locale_flag(region.code)
         builder.button(
-            text=f"✕ {region.name}",
+            text=f"✕ {flag} {region.name}",
             callback_data=f"region_remove:{region.id}",
+        )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def search_results_keyboard(games: list[dict]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for game in games:
+        emoji = TYPE_EMOJI.get(game["type"], "🎮")
+        builder.button(
+            text=f"{emoji} {game['title']}",
+            callback_data=f"subscribe:{game['ps_id']}",
         )
     builder.adjust(1)
     return builder.as_markup()

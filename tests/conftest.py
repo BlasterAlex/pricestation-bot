@@ -7,12 +7,10 @@ from sqlalchemy.pool import NullPool
 from db.base import Base
 from db.models import Game, Region, User
 
-TEST_DATABASE_URL = os.environ["DATABASE_URL"]
-
 
 @pytest_asyncio.fixture
 async def engine():
-    engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
+    engine = create_async_engine(os.environ["DATABASE_URL"], poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
