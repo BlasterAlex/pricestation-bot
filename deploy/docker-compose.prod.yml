@@ -1,0 +1,27 @@
+services:
+  db:
+    container_name: db
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pricestation
+      POSTGRES_PASSWORD: pricestation
+      POSTGRES_DB: pricestation
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pricestation"]
+      interval: 5s
+      retries: 5
+
+  bot:
+    container_name: bot
+    image: ghcr.io/blasteralex/pricestation-bot:latest
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
