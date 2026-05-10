@@ -46,7 +46,7 @@ async def game(session: AsyncSession):
 
 @pytest_asyncio.fixture
 async def region(session: AsyncSession):
-    r = Region(code="TR", name="Турция", currency="TRY")
+    r = Region(code="tr-tr", name="Turkey")
     session.add(r)
     await session.flush()
     return r

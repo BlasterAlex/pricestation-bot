@@ -8,9 +8,9 @@ router = Router()
 
 @router.message(Command("subscribe"))
 async def cmd_subscribe(message: Message, session: AsyncSession) -> None:
-    await message.answer("Введите название игры для поиска:")
+    await message.answer("Enter the game title to search:")
 
 
 @router.message(Command("my"))
 async def cmd_my_subscriptions(message: Message, session: AsyncSession) -> None:
-    await message.answer("Ваши подписки:")
+    await message.answer("Your subscriptions:")

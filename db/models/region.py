@@ -9,9 +9,12 @@ class Region(Base):
     __tablename__ = "regions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String(8), unique=True, nullable=False)
-    name: Mapped[str] = mapped_column(String(64), nullable=False)
-    currency: Mapped[str] = mapped_column(String(8), nullable=False)
+    code: Mapped[str] = mapped_column(String(16), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
     subscriptions: Mapped[list["Subscription"]] = relationship(back_populates="region")
     prices: Mapped[list["Price"]] = relationship(back_populates="region")
+    users: Mapped[list["User"]] = relationship(
+        secondary="user_regions", back_populates="regions"
+    )
