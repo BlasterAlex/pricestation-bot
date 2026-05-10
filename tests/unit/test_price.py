@@ -1,6 +1,3 @@
-import pytest
-
-
 def is_price_dropped(old_price: float, new_price: float) -> bool:
     return new_price < old_price
 

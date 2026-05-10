@@ -1,12 +1,11 @@
 import pytest
-import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Price, Subscription
 from services.price import get_active_pairs, get_latest_price
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def subscription(session: AsyncSession, user, game, region):
     sub = Subscription(user_id=user.id, game_id=game.id, region_id=region.id)
     session.add(sub)
