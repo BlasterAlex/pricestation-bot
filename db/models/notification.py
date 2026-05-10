@@ -19,4 +19,4 @@ class Notification(Base):
     new_price: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     sent_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
-    subscription: Mapped[Subscription] = relationship(back_populates="notifications")
+    subscription: Mapped["Subscription"] = relationship(back_populates="notifications")
