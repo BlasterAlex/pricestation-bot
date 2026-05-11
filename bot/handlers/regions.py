@@ -48,12 +48,12 @@ async def cmd_my_regions(message: Message, session: AsyncSession) -> None:
 
     await message.answer(
         "Your regions (tap to remove):\n\n"
-        "➕ Add a new one: /add_region",
+        "Add a new one: /add_region",
         reply_markup=user_regions_keyboard(regions),
     )
 
 
-@router.message(RegionForm.waiting_for_search)
+@router.message(RegionForm.waiting_for_search, ~F.text.startswith("/"))
 async def on_region_search(
     message: Message, state: FSMContext, session: AsyncSession
 ) -> None:

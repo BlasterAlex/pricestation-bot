@@ -9,3 +9,7 @@ class SubscriptionForm(StatesGroup):
 
 class RegionForm(StatesGroup):
     waiting_for_search = State()
+
+
+class SearchForm(StatesGroup):
+    waiting_for_query = State()
