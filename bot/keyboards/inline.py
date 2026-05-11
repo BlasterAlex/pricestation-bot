@@ -2,6 +2,7 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.formatters import TYPE_EMOJI, locale_flag
+from services.ps_store import GameResult
 
 _MAX_RESULTS = 20
 
@@ -39,13 +40,13 @@ def user_regions_keyboard(regions: list) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def search_results_keyboard(games: list[dict]) -> InlineKeyboardMarkup:
+def search_results_keyboard(games: list[GameResult]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for game in games:
-        emoji = TYPE_EMOJI.get(game["type"], "🎮")
+        emoji = TYPE_EMOJI.get(game.type, "🎮")
         builder.button(
-            text=f"{emoji} {game['title']}",
-            callback_data=f"subscribe:{game['ps_id']}",
+            text=f"{emoji} {game.title}",
+            callback_data=f"game_detail:{game.ps_id}",
         )
     builder.adjust(1)
     return builder.as_markup()

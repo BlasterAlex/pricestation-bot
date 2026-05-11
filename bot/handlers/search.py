@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.formatters import format_search_results
+from bot.formatters import format_game_list
 from bot.keyboards.inline import search_results_keyboard
 from bot.states.subscription import SearchForm
 from services.currency import get_rates
@@ -26,26 +26,30 @@ async def _do_search(message: Message, session: AsyncSession, query: str) -> Non
     user_regions = await get_user_regions(session, user.id)
 
     if not user_regions:
-        games = await search_games(query)
-        prices_by_game: dict[str, dict] = {}
-        rates = None
-    else:
-        results, rates = await asyncio.gather(
-            asyncio.gather(*[search_games(query, region.code) for region in user_regions]),
-            get_rates(),
-        )
-        games = results[0]
-        prices_by_game = {}
-        for region, region_games in zip(user_regions, results):
-            for game in region_games:
-                ps_id = game["ps_id"]
-                if ps_id not in prices_by_game:
-                    prices_by_game[ps_id] = {}
-                prices_by_game[ps_id][region.code] = (
-                    game["price"], game["currency"], game["base_price"], game["discount_text"]
-                )
+        await message.answer("No regions added yet.\nAdd one with /add_region")
+        return
 
-    text = format_search_results(games, prices_by_game, has_regions=bool(user_regions), rates=rates)
+    results, rates = await asyncio.gather(
+        asyncio.gather(*[search_games(query, region.code) for region in user_regions]),
+        get_rates(),
+    )
+    games = results[0]
+    prices_by_game: dict[str, dict] = {}
+    for region, region_games in zip(user_regions, results):
+        for game in region_games:
+            if game.ps_id not in prices_by_game:
+                prices_by_game[game.ps_id] = {}
+            prices_by_game[game.ps_id][region.code] = (
+                game.price, game.currency, game.base_price, game.discount_text
+            )
+
+    text = format_game_list(
+        title="Select a game to see details:",
+        footer="Want to track prices in more regions?\nAdd a new one: /add_region",
+        games=games,
+        prices_by_game=prices_by_game,
+        rates=rates,
+    )
     await message.answer(text, reply_markup=search_results_keyboard(games))
 
 
