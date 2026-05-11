@@ -20,17 +20,21 @@ STORE_HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/124.0.0.0 Safari/537.36"
     ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept": "application/json",
     "Accept-Language": "en-US,en;q=0.9",
 }
 
 GAME_TYPES = {"FULL_GAME", "PREMIUM_EDITION", "GAME_BUNDLE"}
 
 _GQL_URL = "https://web.np.playstation.com/api/graphql/v1/op"
-# SHA-256 of the `productRetrieveForUpsellWithCtas` GQL query, embedded in PS Store JS bundles.
+# SHA-256 of GQL persisted queries, embedded in PS Store JS bundles.
 # Hardcoded by Sony (Apollo Persisted Queries) — cannot be computed locally.
 # If requests start returning 400/errors, extract the new hash from the JS bundle at store.playstation.com.
+_GQL_SEARCH_HASH = "6ef5e809c35a056a1150fdcf513d9c505484dd1a946b6208888435c3182f105a"
 _GQL_UPSELL_HASH = "a110672db9e20dc4f4d655fffd2f3a09730914ec3458cfb53de70cb2b526af53"
+
+_GQL_SEARCH_PAGE_SIZE = 50
+_GQL_SEARCH_MAX_PAGES = 3
 
 
 @dataclass
@@ -61,11 +65,6 @@ class GameResult:
     @classmethod
     def from_dict(cls, d: dict) -> "GameResult":
         return cls(**d)
-
-NEXT_DATA_RE = re.compile(
-    r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
-    re.DOTALL,
-)
 
 
 _PRICE_RE = re.compile(r'^(?P<prefix>[^\d,.]*)(?P<number>[\d.,]+)(?P<suffix>[^\d,.]*)$')
@@ -104,6 +103,23 @@ def _parse_price(price_str: str) -> tuple[float | None, str | None]:
         return None, None
 
 
+def _parse_str_price_data(price_data: dict) -> tuple[float | None, str | None, float | None, str | None]:
+    """Parse string-format price data from search results → (price, currency, base_price, discount_text)."""
+    discounted_str = price_data.get("discountedPrice")
+    base_str = price_data.get("basePrice")
+
+    price, currency = _parse_price(discounted_str) if discounted_str and discounted_str != "Free" else (None, None)
+    base_price, base_currency = _parse_price(base_str) if base_str and base_str != "Free" else (None, None)
+
+    if price is None:
+        return base_price, base_currency, None, price_data.get("discountText")
+
+    if base_price == price:
+        base_price = None
+
+    return price, currency, base_price, price_data.get("discountText")
+
+
 def _extract_cover(media: list[dict]) -> str | None:
     for role in ("MASTER", "EDITION_KEY_ART", "FOUR_BY_THREE_BANNER"):
         for item in media:
@@ -112,9 +128,34 @@ def _extract_cover(media: list[dict]) -> str | None:
     return None
 
 
+def _make_game_result(product: dict, price: float | None, currency: str | None,
+                      base_price: float | None, discount_text: str | None) -> GameResult:
+    return GameResult(
+        ps_id=product["id"],
+        title=product.get("name", ""),
+        platforms=product.get("platforms") or [],
+        type=product.get("storeDisplayClassification"),
+        price=price,
+        currency=currency,
+        base_price=base_price,
+        discount_text=discount_text,
+        cover_url=_extract_cover(product.get("media") or []),
+    )
+
+
 def _locale_header(region: str) -> str:
     lang, _, country = region.partition("-")
     return f"{lang}-{country.upper()}" if country else region
+
+
+def _gql_headers(region: str, referer: str) -> dict:
+    return {
+        **STORE_HEADERS,
+        "Origin": "https://store.playstation.com",
+        "Referer": referer,
+        "apollo-require-preflight": "true",
+        "x-psn-store-locale-override": _locale_header(region),
+    }
 
 
 def _outright_price(webctas: list[dict]) -> dict | None:
@@ -125,75 +166,68 @@ def _outright_price(webctas: list[dict]) -> dict | None:
     return None
 
 
-def _resolve_product(apollo: dict, ref: str) -> GameResult | None:
-    raw = apollo.get(ref)
-    if not raw or raw.get("__typename") != "Product":
-        return None
-
-    media = raw.get("media") or []
-    price_data = raw.get("price") or {}
-
-    discounted_str = price_data.get("discountedPrice")
-    base_str = price_data.get("basePrice")
-
-    price, currency = _parse_price(discounted_str) if discounted_str and discounted_str != "Free" else (None, None)
-    base_price, _ = _parse_price(base_str) if base_str and base_str != "Free" else (None, None)
-
-    if base_price == price:
-        base_price = None
-
-    return GameResult(
-        ps_id=raw["id"],
-        title=raw["name"],
-        platforms=raw.get("platforms", []),
-        type=raw.get("storeDisplayClassification"),
-        price=price,
-        currency=currency,
-        base_price=base_price,
-        discount_text=price_data.get("discountText"),
-        cover_url=_extract_cover(media),
-    )
+async def _fetch_search_page(
+    session: aiohttp.ClientSession,
+    base_vars: dict,
+    cursor: str,
+    offset: int,
+    headers: dict,
+) -> dict | None:
+    params = urlencode({
+        "operationName": "getSearchResults",
+        "variables": json.dumps({**base_vars, "nextCursor": cursor, "pageOffset": offset}),
+        "extensions": json.dumps({"persistedQuery": {"version": 1, "sha256Hash": _GQL_SEARCH_HASH}}),
+    })
+    async with session.get(f"{_GQL_URL}?{params}", headers=headers) as resp:
+        if resp.status != 200:
+            logger.warning("search_games: HTTP %d [offset=%d]", resp.status, offset)
+            return None
+        data = await resp.json(content_type=None)
+    return (data.get("data") or {}).get("universalSearch")
 
 
 async def search_games(query: str, region: str = "en-us") -> list[GameResult]:
-    url = f"https://store.playstation.com/{region}/search/{query}"
+    lang, _, country = region.partition("-")
+    base_vars = {
+        "countryCode": country.upper() if country else region.upper(),
+        "languageCode": lang,
+        "pageSize": _GQL_SEARCH_PAGE_SIZE,
+        "searchTerm": query,
+    }
+    headers = _gql_headers(region, "https://store.playstation.com/")
+    words = [w.lower() for w in query.split() if w]
 
-    async with aiohttp.ClientSession(headers=STORE_HEADERS) as session:
-        async with session.get(url) as resp:
-            resp.raise_for_status()
-            html = await resp.text()
+    results: list[GameResult] = []
+    cursor = ""
+    offset = 0
+    fetched_any = False
 
-    match = NEXT_DATA_RE.search(html)
-    if not match:
-        return []
+    async with aiohttp.ClientSession() as session:
+        for _ in range(_GQL_SEARCH_MAX_PAGES):
+            page = await _fetch_search_page(session, base_vars, cursor, offset, headers)
+            if not page:
+                break
+            fetched_any = True
+            page_hits = 0
+            for product in page.get("results", []):
+                if product.get("storeDisplayClassification") not in GAME_TYPES:
+                    continue
+                if not all(w in product.get("name", "").lower() for w in words):
+                    continue
+                page_hits += 1
+                price, currency, base_price, discount_text = _parse_str_price_data(product.get("price") or {})
+                results.append(_make_game_result(product, price, currency, base_price, discount_text))
+            if page["pageInfo"]["isLast"] or page_hits == 0:
+                break
+            cursor = page["next"]
+            offset += _GQL_SEARCH_PAGE_SIZE
 
-    data = json.loads(match.group(1))
-    apollo: dict = data.get("props", {}).get("apolloState", {})
-    root: dict = apollo.get("ROOT_QUERY", {})
-
-    search_data: dict | None = None
-    for key, val in root.items():
-        if "universalSearch" in key and isinstance(val, dict):
-            search_data = val
-            break
-
-    if not search_data:
+    if not fetched_any:
         logger.warning("search_games: no universalSearch data [query=%r region=%s]", query, region)
         return []
 
-    words = [w.lower() for w in query.split() if w]
-
-    results = []
-    for ref_obj in search_data.get("results", []):
-        ref = ref_obj.get("__ref", "")
-        product = _resolve_product(apollo, ref)
-        if not product or product.type not in GAME_TYPES:
-            continue
-        title_lower = product.title.lower()
-        if all(w in title_lower for w in words):
-            results.append(product)
-
-    logger.info("search_games: %d results [query=%r region=%s]", len(results), query, region)
+    logger.info("search_games: %d results across %d page(s) [query=%r region=%s]",
+                len(results), offset // _GQL_SEARCH_PAGE_SIZE + 1, query, region)
     return results
 
 
@@ -203,16 +237,12 @@ async def get_game_info(ps_id: str, region: str = "en-us") -> GameResult | None:
         "variables": json.dumps({"productId": ps_id}),
         "extensions": json.dumps({"persistedQuery": {"version": 1, "sha256Hash": _GQL_UPSELL_HASH}}),
     })
-    headers = {
-        **STORE_HEADERS,
-        "Origin": "https://store.playstation.com",
-        "Referer": f"https://store.playstation.com/{region}/product/{ps_id}/",
-        "apollo-require-preflight": "true",
-        "x-psn-store-locale-override": _locale_header(region),
-    }
 
     async with aiohttp.ClientSession() as session:
-        async with session.get(f"{_GQL_URL}?{params}", headers=headers) as resp:
+        async with session.get(
+            f"{_GQL_URL}?{params}",
+            headers=_gql_headers(region, f"https://store.playstation.com/{region}/product/{ps_id}/"),
+        ) as resp:
             if resp.status != 200:
                 logger.warning("get_game_info: HTTP %d [ps_id=%s region=%s]", resp.status, ps_id, region)
                 return None
@@ -234,25 +264,15 @@ async def get_game_info(ps_id: str, region: str = "en-us") -> GameResult | None:
     if price_cta and not price_cta.get("isFree"):
         iso = price_cta.get("currencyCode")
         divisor = 1 if iso in _WHOLE_UNIT_CURRENCIES else 100
-        dv = price_cta.get("discountedValue") or 0
-        bv = price_cta.get("basePriceValue") or 0
-        price = dv / divisor if dv else None
-        base_price = bv / divisor if bv and bv != dv else None
+        dv = price_cta.get("discountedValue")
+        bv = price_cta.get("basePriceValue")
+        price = (dv if dv is not None else bv or 0) / divisor or None
+        base_price = bv / divisor if bv is not None and bv != dv else None
         currency = PS_ISO_TO_SYMBOL.get(iso, iso)
         discount_text = price_cta.get("discountText")
 
     logger.info("get_game_info: found %r [ps_id=%s region=%s]", product.get("name"), ps_id, region)
-    return GameResult(
-        ps_id=ps_id,
-        title=product.get("name"),
-        platforms=product.get("platforms") or [],
-        type=product.get("storeDisplayClassification"),
-        price=price,
-        currency=currency,
-        base_price=base_price,
-        discount_text=discount_text,
-        cover_url=_extract_cover(product.get("media") or []),
-    )
+    return _make_game_result(product, price, currency, base_price, discount_text)
 
 
 async def get_game_price(ps_id: str, region: str = "en-us") -> float | None:
