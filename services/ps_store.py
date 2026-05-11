@@ -1,4 +1,4 @@
-import json
+﻿import json
 import logging
 import re
 from dataclasses import dataclass
@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 
 import aiohttp
 
-from services.currency import PS_ISO_TO_SYMBOL
+from services.currency import PS_CURRENCY_MAP, PS_ISO_TO_SYMBOL
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,6 @@ _GQL_SEARCH_HASH = "6ef5e809c35a056a1150fdcf513d9c505484dd1a946b6208888435c3182f
 _GQL_UPSELL_HASH = "a110672db9e20dc4f4d655fffd2f3a09730914ec3458cfb53de70cb2b526af53"
 
 _GQL_SEARCH_PAGE_SIZE = 50
-_GQL_SEARCH_MAX_PAGES = 3
 
 
 @dataclass
@@ -72,6 +71,7 @@ _PRICE_RE = re.compile(r'^(?P<prefix>[^\d,.]*)(?P<number>[\d.,]+)(?P<suffix>[^\d
 
 def _parse_price(price_str: str) -> tuple[float | None, str | None]:
     normalized = price_str.replace(" ", " ").strip()
+    normalized = re.sub(r"(?<=\d) (?=\d)", "", normalized)
     m = _PRICE_RE.match(normalized)
     if not m:
         return None, None
@@ -103,6 +103,13 @@ def _parse_price(price_str: str) -> tuple[float | None, str | None]:
         return None, None
 
 
+def _canonical_currency(currency: str | None) -> str | None:
+    if currency is None:
+        return None
+    iso = PS_ISO_TO_SYMBOL.get(PS_CURRENCY_MAP.get(currency, currency))
+    return iso if iso is not None else currency
+
+
 def _parse_str_price_data(price_data: dict) -> tuple[float | None, str | None, float | None, str | None]:
     """Parse string-format price data from search results → (price, currency, base_price, discount_text)."""
     discounted_str = price_data.get("discountedPrice")
@@ -112,12 +119,12 @@ def _parse_str_price_data(price_data: dict) -> tuple[float | None, str | None, f
     base_price, base_currency = _parse_price(base_str) if base_str and base_str != "Free" else (None, None)
 
     if price is None:
-        return base_price, base_currency, None, price_data.get("discountText")
+        return base_price, _canonical_currency(base_currency), None, price_data.get("discountText")
 
     if base_price == price:
         base_price = None
 
-    return price, currency, base_price, price_data.get("discountText")
+    return price, _canonical_currency(currency), base_price, price_data.get("discountText")
 
 
 def _extract_cover(media: list[dict]) -> str | None:
@@ -166,68 +173,45 @@ def _outright_price(webctas: list[dict]) -> dict | None:
     return None
 
 
-async def _fetch_search_page(
-    session: aiohttp.ClientSession,
-    base_vars: dict,
-    cursor: str,
-    offset: int,
-    headers: dict,
-) -> dict | None:
+async def search_games(query: str, region: str = "en-us") -> list[GameResult]:
+    _, _, country = region.partition("-")
     params = urlencode({
         "operationName": "getSearchResults",
-        "variables": json.dumps({**base_vars, "nextCursor": cursor, "pageOffset": offset}),
+        "variables": json.dumps({
+            "countryCode": country.upper() if country else region.upper(),
+            "languageCode": "en",
+            "pageSize": _GQL_SEARCH_PAGE_SIZE,
+            "searchTerm": query,
+            "nextCursor": "",
+            "pageOffset": 0,
+        }),
         "extensions": json.dumps({"persistedQuery": {"version": 1, "sha256Hash": _GQL_SEARCH_HASH}}),
     })
-    async with session.get(f"{_GQL_URL}?{params}", headers=headers) as resp:
-        if resp.status != 200:
-            logger.warning("search_games: HTTP %d [offset=%d]", resp.status, offset)
-            return None
-        data = await resp.json(content_type=None)
-    return (data.get("data") or {}).get("universalSearch")
-
-
-async def search_games(query: str, region: str = "en-us") -> list[GameResult]:
-    lang, _, country = region.partition("-")
-    base_vars = {
-        "countryCode": country.upper() if country else region.upper(),
-        "languageCode": lang,
-        "pageSize": _GQL_SEARCH_PAGE_SIZE,
-        "searchTerm": query,
-    }
     headers = _gql_headers(region, "https://store.playstation.com/")
     words = [w.lower() for w in query.split() if w]
 
-    results: list[GameResult] = []
-    cursor = ""
-    offset = 0
-    fetched_any = False
-
     async with aiohttp.ClientSession() as session:
-        for _ in range(_GQL_SEARCH_MAX_PAGES):
-            page = await _fetch_search_page(session, base_vars, cursor, offset, headers)
-            if not page:
-                break
-            fetched_any = True
-            page_hits = 0
-            for product in page.get("results", []):
-                if product.get("storeDisplayClassification") not in GAME_TYPES:
-                    continue
-                if not all(w in product.get("name", "").lower() for w in words):
-                    continue
-                page_hits += 1
-                price, currency, base_price, discount_text = _parse_str_price_data(product.get("price") or {})
-                results.append(_make_game_result(product, price, currency, base_price, discount_text))
-            if page["pageInfo"]["isLast"] or page_hits == 0:
-                break
-            cursor = page["next"]
-            offset += _GQL_SEARCH_PAGE_SIZE
+        async with session.get(f"{_GQL_URL}?{params}", headers=headers) as resp:
+            if resp.status != 200:
+                logger.warning("search_games: HTTP %d [query=%r region=%s]", resp.status, query, region)
+                return []
+            data = await resp.json(content_type=None)
 
-    if not fetched_any:
+    page = (data.get("data") or {}).get("universalSearch")
+    if not page:
         logger.warning("search_games: no universalSearch data [query=%r region=%s]", query, region)
         return []
 
-    logger.info("search_games: %d results across %d page(s) [query=%r region=%s]",
-                len(results), offset // _GQL_SEARCH_PAGE_SIZE + 1, query, region)
+    results: list[GameResult] = []
+    for product in page.get("results", []):
+        if product.get("storeDisplayClassification") not in GAME_TYPES:
+            continue
+        if not all(w in product.get("name", "").lower() for w in words):
+            continue
+        price, currency, base_price, discount_text = _parse_str_price_data(product.get("price") or {})
+        results.append(_make_game_result(product, price, currency, base_price, discount_text))
+
+    logger.info("search_games: %d results [query=%r region=%s]", len(results), query, region)
     return results
 
 

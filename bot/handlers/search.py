@@ -37,9 +37,7 @@ async def _do_search(message: Message, session: AsyncSession, query: str) -> Non
     prices_by_game: dict[str, dict] = {}
     for region, region_games in zip(user_regions, results):
         for game in region_games:
-            if game.ps_id not in prices_by_game:
-                prices_by_game[game.ps_id] = {}
-            prices_by_game[game.ps_id][region.code] = (
+            prices_by_game.setdefault(game.ps_id, {})[region.code] = (
                 game.price, game.currency, game.base_price, game.discount_text
             )
 

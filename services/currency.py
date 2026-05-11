@@ -19,6 +19,7 @@ PS_CURRENCY_MAP: dict[str, str] = {
     "A$": "AUD",
     "C$": "CAD",
     "zł": "PLN",
+    "zl": "PLN",
     "kr": "SEK",
     "CHF": "CHF",
     "CZK": "CZK",
@@ -29,6 +30,7 @@ PS_CURRENCY_MAP: dict[str, str] = {
     "ARS": "ARS",
     "CLP": "CLP",
     "COP": "COP",
+    "UAH": "UAH",
 }
 
 # ISO 4217 code → PS Store display symbol
@@ -54,6 +56,7 @@ PS_ISO_TO_SYMBOL: dict[str, str] = {
     "ARS": "ARS",
     "CLP": "CLP",
     "COP": "COP",
+    "UAH": "UAH",
 }
 
 _RATES_CACHE: dict[str, float] = {}
@@ -62,13 +65,12 @@ _cache_ts: float = 0.0
 
 
 async def _fetch_rates() -> dict[str, float]:
-    url = "https://api.frankfurter.dev/v1/latest?from=USD"
+    url = "https://open.er-api.com/v6/latest/USD"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             resp.raise_for_status()
             data = await resp.json()
     rates = data["rates"]
-    rates["USD"] = 1.0
     logger.info("Exchange rates updated (%d currencies)", len(rates))
     return rates
 

@@ -5,8 +5,6 @@ from services.ps_store import GameResult, get_game_info, search_games
 FAKE_GQL_SEARCH = {
     "data": {
         "universalSearch": {
-            "next": "",
-            "pageInfo": {"totalCount": 3, "offset": 0, "size": 3, "isLast": True},
             "results": [
                 {
                     "__typename": "Product",
@@ -100,8 +98,6 @@ async def test_search_discount_fields(mocker):
     fake = {
         "data": {
             "universalSearch": {
-                "next": "",
-                "pageInfo": {"totalCount": 1, "offset": 0, "size": 1, "isLast": True},
                 "results": [
                     {
                         "__typename": "Product",
@@ -151,8 +147,6 @@ async def test_search_free_price_is_none(mock_store):
     fake = {
         "data": {
             "universalSearch": {
-                "next": "",
-                "pageInfo": {"totalCount": 1, "offset": 0, "size": 1, "isLast": True},
                 "results": [
                     {
                         "__typename": "Product",
@@ -191,8 +185,6 @@ async def test_search_ps_plus_free_falls_back_to_base_price(mocker):
     fake = {
         "data": {
             "universalSearch": {
-                "next": "",
-                "pageInfo": {"totalCount": 1, "offset": 0, "size": 1, "isLast": True},
                 "results": [
                     {
                         "__typename": "Product",
