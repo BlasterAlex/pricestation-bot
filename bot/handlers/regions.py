@@ -22,13 +22,43 @@ from services.user import get_or_create_user
 router = Router()
 
 
-@router.message(Command("add_region"))
-async def cmd_add_region(message: Message, state: FSMContext) -> None:
-    await state.set_state(RegionForm.waiting_for_search)
-    await message.answer(
-        "Type a country name to search:",
-        reply_markup=cancel_keyboard(),
+async def _do_region_search(message: Message, session: AsyncSession, query: str) -> None:
+    user = await get_or_create_user(
+        session, message.from_user.id, message.from_user.username
     )
+    await session.commit()
+
+    user_regions = await get_user_regions(session, user.id)
+    tracked_locales = {r.code for r in user_regions}
+
+    all_countries = await get_ps_regions()
+    matches = [c for c in all_countries if query.lower() in c["name"].lower()]
+
+    if not matches:
+        await message.answer(
+            "No results found. Try a different name:",
+            reply_markup=cancel_keyboard(),
+        )
+        return
+
+    keyboard = ps_regions_keyboard(matches, tracked_locales=tracked_locales)
+    await message.answer(
+        f"Found {len(matches)} region(s). Choose one:",
+        reply_markup=keyboard,
+    )
+
+
+@router.message(Command("add_region"))
+async def cmd_add_region(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    query = message.text.partition(" ")[2].strip()
+    if query:
+        await _do_region_search(message, session, query)
+    else:
+        await state.set_state(RegionForm.waiting_for_search)
+        await message.answer(
+            "Type a country name to search:",
+            reply_markup=cancel_keyboard(),
+        )
 
 
 @router.message(Command("my_regions"))
@@ -57,33 +87,11 @@ async def cmd_my_regions(message: Message, session: AsyncSession) -> None:
 async def on_region_search(
     message: Message, state: FSMContext, session: AsyncSession
 ) -> None:
-    query = message.text.strip().lower()
+    query = message.text.strip()
     if not query:
         return
-
-    user = await get_or_create_user(
-        session, message.from_user.id, message.from_user.username
-    )
-    await session.commit()
-
-    user_regions = await get_user_regions(session, user.id)
-    tracked_locales = {r.code for r in user_regions}
-
-    all_countries = await get_ps_regions()
-    matches = [c for c in all_countries if query in c["name"].lower()]
-
-    if not matches:
-        await message.answer(
-            "No results found. Try a different name:",
-            reply_markup=cancel_keyboard(),
-        )
-        return
-
-    keyboard = ps_regions_keyboard(matches, tracked_locales=tracked_locales)
-    await message.answer(
-        f"Found {len(matches)} region(s). Choose one:",
-        reply_markup=keyboard,
-    )
+    await state.clear()
+    await _do_region_search(message, session, query)
 
 
 @router.callback_query(F.data == "noop")

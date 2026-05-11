@@ -12,8 +12,9 @@ An automated Telegram bot designed to help gamers find the lowest prices for Pla
 
 ### Commands
 
-| Command       | Description                               |
-|---------------|-------------------------------------------|
-| `/start`      | Welcome message                           |
-| `/add_region` | Search and add a PS Store region to track |
-| `/my_regions` | Manage your tracked regions               |
+| Command       | Description                                                      |
+|---------------|------------------------------------------------------------------|
+| `/start`      | Welcome message                                                  |
+| `/add_region` | Search and add a PS Store region to track                        |
+| `/my_regions` | Manage your tracked regions                                      |
+| `/search`     | Search for a game and compare prices across your tracked regions |

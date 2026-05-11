@@ -1,64 +1,61 @@
-import json
-
 import pytest
 
 from services.ps_store import GameResult, get_game_info, search_games
 
-FAKE_APOLLO = {
-    "ROOT_QUERY": {
-        'universalSearch({"countryCode":"US","languageCode":"en","nextCursor":"","pageOffset":0,"pageSize":24,"searchTerm":"spider+man"})': {  # noqa: E501
-            "__typename": "UniversalSearchResponse",
-            "searchTerm": "spider+man",
+FAKE_GQL_SEARCH = {
+    "data": {
+        "universalSearch": {
             "next": "",
-            "pageInfo": {"__typename": "PageInfo", "totalCount": 3, "offset": 0, "size": 24, "isLast": True},
+            "pageInfo": {"totalCount": 3, "offset": 0, "size": 3, "isLast": True},
             "results": [
-                {"__ref": "Product:UP9000-PPSA03016_00-MARVELSPIDERMAN2:en-us"},
-                {"__ref": "Product:UP9000-PPSA03016_00-MSM2TU1000000000:en-us"},  # COSTUME — filtered
-                {"__ref": "Product:UP9000-PPSA01467_00-MARVELSSPIDERMAN:en-us"},
+                {
+                    "__typename": "Product",
+                    "id": "UP9000-PPSA03016_00-MARVELSPIDERMAN2",
+                    "name": "Marvel's Spider-Man 2",
+                    "platforms": ["PS5"],
+                    "storeDisplayClassification": "FULL_GAME",
+                    "price": {
+                        "basePrice": "$69.99",
+                        "discountedPrice": "$69.99",
+                        "discountText": None,
+                        "isFree": False,
+                    },
+                    "media": [{"role": "MASTER", "type": "IMAGE", "url": "https://example.com/cover.png"}],
+                },
+                {
+                    "__typename": "Product",
+                    "id": "UP9000-PPSA03016_00-MSM2TU1000000000",
+                    "name": "Marvel's Spider-Man 2 Fly N Fresh Suit Pack",
+                    "platforms": ["PS5"],
+                    "storeDisplayClassification": "COSTUME",
+                    "price": {"basePrice": "Free", "discountedPrice": "Free", "discountText": None, "isFree": True},
+                    "media": [],
+                },
+                {
+                    "__typename": "Product",
+                    "id": "UP9000-PPSA01467_00-MARVELSSPIDERMAN",
+                    "name": "Marvel's Spider-Man Remastered",
+                    "platforms": ["PS5"],
+                    "storeDisplayClassification": "FULL_GAME",
+                    "price": {
+                        "basePrice": "$49.99",
+                        "discountedPrice": "$49.99",
+                        "discountText": None,
+                        "isFree": False,
+                    },
+                    "media": [],
+                },
             ],
         }
-    },
-    "Product:UP9000-PPSA03016_00-MARVELSPIDERMAN2:en-us": {
-        "__typename": "Product",
-        "id": "UP9000-PPSA03016_00-MARVELSPIDERMAN2",
-        "name": "Marvel's Spider-Man 2",
-        "platforms": ["PS5"],
-        "storeDisplayClassification": "FULL_GAME",
-        "price": {"__typename": "SkuPrice", "basePrice": "$69.99", "discountedPrice": "$69.99"},
-        "media": [{"__typename": "Media", "role": "MASTER", "type": "IMAGE", "url": "https://example.com/cover.png"}],
-    },
-    "Product:UP9000-PPSA03016_00-MSM2TU1000000000:en-us": {
-        "__typename": "Product",
-        "id": "UP9000-PPSA03016_00-MSM2TU1000000000",
-        "name": "Marvel's Spider-Man 2 Fly N Fresh Suit Pack",
-        "platforms": ["PS5"],
-        "storeDisplayClassification": "COSTUME",
-        "price": {"__typename": "SkuPrice", "basePrice": "Free", "discountedPrice": "Free"},
-        "media": [],
-    },
-    "Product:UP9000-PPSA01467_00-MARVELSSPIDERMAN:en-us": {
-        "__typename": "Product",
-        "id": "UP9000-PPSA01467_00-MARVELSSPIDERMAN",
-        "name": "Marvel's Spider-Man Remastered",
-        "platforms": ["PS5"],
-        "storeDisplayClassification": "FULL_GAME",
-        "price": {"__typename": "SkuPrice", "basePrice": "$49.99", "discountedPrice": "$49.99"},
-        "media": [],
-    },
+    }
 }
-
-FAKE_HTML = f"""
-<html><head>
-<script id="__NEXT_DATA__" type="application/json">{json.dumps({"props": {"apolloState": FAKE_APOLLO}})}</script>
-</head><body></body></html>
-"""
 
 
 @pytest.fixture
 def mock_store(mocker):
     mock_resp = mocker.AsyncMock()
-    mock_resp.raise_for_status = mocker.Mock()
-    mock_resp.text = mocker.AsyncMock(return_value=FAKE_HTML)
+    mock_resp.status = 200
+    mock_resp.json = mocker.AsyncMock(return_value=FAKE_GQL_SEARCH)
     mock_resp.__aenter__ = mocker.AsyncMock(return_value=mock_resp)
     mock_resp.__aexit__ = mocker.AsyncMock(return_value=False)
 
@@ -99,29 +96,47 @@ async def test_search_result_fields(mock_store):
 
 
 @pytest.mark.asyncio
-async def test_search_discount_fields(mock_store):
-    from services.ps_store import _resolve_product
-    apollo = {
-        **FAKE_APOLLO,
-        "Product:SALE_GAME:en-us": {
-            "__typename": "Product",
-            "id": "SALE_GAME",
-            "name": "Sale Game",
-            "platforms": ["PS4"],
-            "storeDisplayClassification": "FULL_GAME",
-            "price": {
-                "__typename": "SkuPrice",
-                "basePrice": "$39.99",
-                "discountedPrice": "$19.99",
-                "discountText": "-50%",
-            },
-            "media": [],
-        },
+async def test_search_discount_fields(mocker):
+    fake = {
+        "data": {
+            "universalSearch": {
+                "next": "",
+                "pageInfo": {"totalCount": 1, "offset": 0, "size": 1, "isLast": True},
+                "results": [
+                    {
+                        "__typename": "Product",
+                        "id": "SALE_GAME",
+                        "name": "Sale Game",
+                        "platforms": ["PS4"],
+                        "storeDisplayClassification": "FULL_GAME",
+                        "price": {
+                            "basePrice": "$39.99",
+                            "discountedPrice": "$19.99",
+                            "discountText": "-50%",
+                            "isFree": False,
+                        },
+                        "media": [],
+                    }
+                ],
+            }
+        }
     }
-    product = _resolve_product(apollo, "Product:SALE_GAME:en-us")
-    assert product.price == 19.99
-    assert product.base_price == 39.99
-    assert product.discount_text == "-50%"
+    mock_resp = mocker.AsyncMock()
+    mock_resp.status = 200
+    mock_resp.json = mocker.AsyncMock(return_value=fake)
+    mock_resp.__aenter__ = mocker.AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = mocker.AsyncMock(return_value=False)
+    mock_session = mocker.AsyncMock()
+    mock_session.get = mocker.Mock(return_value=mock_resp)
+    mock_session.__aenter__ = mocker.AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = mocker.AsyncMock(return_value=False)
+    mocker.patch("services.ps_store.aiohttp.ClientSession", return_value=mock_session)
+
+    results = await search_games("sale game")
+    assert len(results) == 1
+    assert results[0].price == 19.99
+    assert results[0].base_price == 39.99
+    assert results[0].discount_text == "-50%"
 
 
 @pytest.mark.asyncio
@@ -133,11 +148,86 @@ async def test_search_no_cover_url(mock_store):
 
 @pytest.mark.asyncio
 async def test_search_free_price_is_none(mock_store):
-    from services.ps_store import _resolve_product
-    apollo = FAKE_APOLLO
-    product = _resolve_product(apollo, "Product:UP9000-PPSA03016_00-MSM2TU1000000000:en-us")
-    assert product.price is None
-    assert product.currency is None
+    fake = {
+        "data": {
+            "universalSearch": {
+                "next": "",
+                "pageInfo": {"totalCount": 1, "offset": 0, "size": 1, "isLast": True},
+                "results": [
+                    {
+                        "__typename": "Product",
+                        "id": "FREE_GAME",
+                        "name": "Free Game Spider Man",
+                        "platforms": ["PS5"],
+                        "storeDisplayClassification": "FULL_GAME",
+                        "price": {"basePrice": "Free", "discountedPrice": "Free", "discountText": None, "isFree": True},
+                        "media": [],
+                    }
+                ],
+            }
+        }
+    }
+    # reuse mock_store pattern inline to avoid fixture conflict
+    import unittest.mock as m
+
+    import services.ps_store as mod
+    mock_resp = m.AsyncMock()
+    mock_resp.status = 200
+    mock_resp.json = m.AsyncMock(return_value=fake)
+    mock_resp.__aenter__ = m.AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = m.AsyncMock(return_value=False)
+    mock_session = m.AsyncMock()
+    mock_session.get = m.Mock(return_value=mock_resp)
+    mock_session.__aenter__ = m.AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = m.AsyncMock(return_value=False)
+    with m.patch.object(mod.aiohttp, "ClientSession", return_value=mock_session):
+        results = await search_games("spider man")
+    assert results[0].price is None
+    assert results[0].currency is None
+
+
+@pytest.mark.asyncio
+async def test_search_ps_plus_free_falls_back_to_base_price(mocker):
+    fake = {
+        "data": {
+            "universalSearch": {
+                "next": "",
+                "pageInfo": {"totalCount": 1, "offset": 0, "size": 1, "isLast": True},
+                "results": [
+                    {
+                        "__typename": "Product",
+                        "id": "PS_PLUS_GAME",
+                        "name": "Spider Man Game",
+                        "platforms": ["PS5"],
+                        "storeDisplayClassification": "FULL_GAME",
+                        "price": {
+                            "basePrice": "$19.99",
+                            "discountedPrice": "Free",
+                            "discountText": None,
+                            "isFree": True,
+                        },
+                        "media": [],
+                    }
+                ],
+            }
+        }
+    }
+    mock_resp = mocker.AsyncMock()
+    mock_resp.status = 200
+    mock_resp.json = mocker.AsyncMock(return_value=fake)
+    mock_resp.__aenter__ = mocker.AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = mocker.AsyncMock(return_value=False)
+    mock_session = mocker.AsyncMock()
+    mock_session.get = mocker.Mock(return_value=mock_resp)
+    mock_session.__aenter__ = mocker.AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = mocker.AsyncMock(return_value=False)
+    mocker.patch("services.ps_store.aiohttp.ClientSession", return_value=mock_session)
+
+    results = await search_games("spider man")
+    assert len(results) == 1
+    assert results[0].price == 19.99
+    assert results[0].currency == "$"
+    assert results[0].base_price is None
 
 
 # --- get_game_info tests ---
