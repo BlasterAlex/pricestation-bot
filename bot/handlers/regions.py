@@ -19,6 +19,8 @@ from services.region import (
 )
 from services.user import get_or_create_user
 
+_MAX_REGION_RESULTS = 20
+
 router = Router()
 
 
@@ -41,7 +43,7 @@ async def _do_region_search(message: Message, session: AsyncSession, query: str)
         )
         return
 
-    keyboard = ps_regions_keyboard(matches, tracked_locales=tracked_locales)
+    keyboard = ps_regions_keyboard(matches[:_MAX_REGION_RESULTS], tracked_locales=tracked_locales)
     await message.answer(
         f"Found {len(matches)} region(s). Choose one:",
         reply_markup=keyboard,
