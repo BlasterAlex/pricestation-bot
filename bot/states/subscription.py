@@ -13,3 +13,4 @@ class RegionForm(StatesGroup):
 
 class SearchForm(StatesGroup):
     waiting_for_query = State()
+    showing_results = State()

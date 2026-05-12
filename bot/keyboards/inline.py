@@ -4,14 +4,11 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from bot.formatters import TYPE_EMOJI, locale_flag
 from services.ps_store import GameResult
 
-_MAX_RESULTS = 20
-
 
 def ps_regions_keyboard(
     countries: list[dict], tracked_locales: set[str]
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    count = 0
     for country in countries:
         flag = locale_flag(country["locale"])
         if country["locale"] in tracked_locales:
@@ -21,9 +18,6 @@ def ps_regions_keyboard(
                 text=f"{flag} {country['name']}",
                 callback_data=f"region_add:{country['locale']}",
             )
-        count += 1
-        if count >= _MAX_RESULTS:
-            break
     builder.adjust(2)
     return builder.as_markup()
 
@@ -42,11 +36,11 @@ def user_regions_keyboard(regions: list) -> InlineKeyboardMarkup:
 
 def search_results_keyboard(games: list[GameResult]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for game in games:
+    for i, game in enumerate(games):
         emoji = TYPE_EMOJI.get(game.type, "🎮")
         builder.button(
             text=f"{emoji} {game.title}",
-            callback_data=f"game_detail:{game.ps_id}",
+            callback_data=f"game_select:{i}",
         )
     builder.adjust(1)
     return builder.as_markup()

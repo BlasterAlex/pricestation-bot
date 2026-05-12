@@ -3,6 +3,8 @@ import time
 
 import aiohttp
 
+_WARN_STATUSES = {403, 404, 410, 429}
+
 logger = logging.getLogger(__name__)
 
 # PS Store currency string → ISO 4217 code
@@ -12,6 +14,7 @@ PS_CURRENCY_MAP: dict[str, str] = {
     "£": "GBP",
     "¥": "JPY",
     "₩": "KRW",
+    "원": "KRW",
     "₺": "TRY",
     "TL": "TRY",
     "Rs": "INR",
@@ -68,7 +71,10 @@ async def _fetch_rates() -> dict[str, float]:
     url = "https://open.er-api.com/v6/latest/USD"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
-            resp.raise_for_status()
+            if resp.status != 200:
+                level = logging.WARNING if resp.status in _WARN_STATUSES else logging.ERROR
+                logger.log(level, "get_rates: HTTP %d", resp.status)
+                return {}
             data = await resp.json()
     rates = data["rates"]
     logger.info("Exchange rates updated (%d currencies)", len(rates))
@@ -78,8 +84,10 @@ async def _fetch_rates() -> dict[str, float]:
 async def get_rates() -> dict[str, float]:
     global _RATES_CACHE, _cache_ts
     if not _RATES_CACHE or time.monotonic() - _cache_ts > _CACHE_TTL:
-        _RATES_CACHE = await _fetch_rates()
-        _cache_ts = time.monotonic()
+        rates = await _fetch_rates()
+        if rates:
+            _RATES_CACHE = rates
+            _cache_ts = time.monotonic()
     return _RATES_CACHE
 
 

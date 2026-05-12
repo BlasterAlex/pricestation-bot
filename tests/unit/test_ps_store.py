@@ -1,6 +1,41 @@
 import pytest
 
-from services.ps_store import GameResult, get_game_info, search_games
+from services.ps_store import GameResult, get_game_info, normalize_title, search_games
+
+# --- normalize_title ---
+
+def test_normalize_title_lowercase():
+    assert normalize_title("FINAL FANTASY") == "finalfantasy"
+
+def test_normalize_title_trademark():
+    assert normalize_title("The Last of Us™") == normalize_title("The Last of Us")
+
+def test_normalize_title_registered():
+    assert normalize_title("FINAL FANTASY® VII") == normalize_title("FINAL FANTASY VII")
+
+def test_normalize_title_colon_parentheses():
+    assert normalize_title("God of War: Ragnarök") == normalize_title("God of War Ragnarök")
+
+def test_normalize_title_standalone_vs_stand_alone():
+    assert normalize_title("Left Behind (Standalone)") == normalize_title("Left Behind Stand Alone")
+
+def test_normalize_title_strips_korean_suffix():
+    assert (
+        normalize_title("FINAL FANTASY XV ROYAL EDITION (중국어, 한국어)")
+        == normalize_title("FINAL FANTASY XV ROYAL EDITION")
+    )
+
+def test_normalize_title_strips_japanese_chars():
+    assert (
+        normalize_title("FINAL FANTASY VII リメイク")
+        == normalize_title("FINAL FANTASY VII")
+    )
+
+def test_normalize_title_collapses_spaces():
+    assert normalize_title("God  of   War") == normalize_title("God of War")
+
+
+# --- fixtures ---
 
 FAKE_GQL_SEARCH = {
     "data": {
@@ -50,20 +85,27 @@ FAKE_GQL_SEARCH = {
 
 
 @pytest.fixture
-def mock_store(mocker):
-    mock_resp = mocker.AsyncMock()
-    mock_resp.status = 200
-    mock_resp.json = mocker.AsyncMock(return_value=FAKE_GQL_SEARCH)
-    mock_resp.__aenter__ = mocker.AsyncMock(return_value=mock_resp)
-    mock_resp.__aexit__ = mocker.AsyncMock(return_value=False)
+def make_mock_store(mocker):
+    def _factory(payload):
+        mock_resp = mocker.AsyncMock()
+        mock_resp.status = 200
+        mock_resp.json = mocker.AsyncMock(return_value=payload)
+        mock_resp.__aenter__ = mocker.AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = mocker.AsyncMock(return_value=False)
+        mock_session = mocker.AsyncMock()
+        mock_session.get = mocker.Mock(return_value=mock_resp)
+        mock_session.__aenter__ = mocker.AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = mocker.AsyncMock(return_value=False)
+        mocker.patch("services.ps_store.aiohttp.ClientSession", return_value=mock_session)
+    return _factory
 
-    mock_session = mocker.AsyncMock()
-    mock_session.get = mocker.Mock(return_value=mock_resp)
-    mock_session.__aenter__ = mocker.AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = mocker.AsyncMock(return_value=False)
 
-    mocker.patch("services.ps_store.aiohttp.ClientSession", return_value=mock_session)
+@pytest.fixture
+def mock_store(make_mock_store):
+    make_mock_store(FAKE_GQL_SEARCH)
 
+
+# --- search_games ---
 
 @pytest.mark.asyncio
 async def test_search_returns_only_games(mock_store):
@@ -94,39 +136,23 @@ async def test_search_result_fields(mock_store):
 
 
 @pytest.mark.asyncio
-async def test_search_discount_fields(mocker):
-    fake = {
-        "data": {
-            "universalSearch": {
-                "results": [
-                    {
-                        "__typename": "Product",
-                        "id": "SALE_GAME",
-                        "name": "Sale Game",
-                        "platforms": ["PS4"],
-                        "storeDisplayClassification": "FULL_GAME",
-                        "price": {
-                            "basePrice": "$39.99",
-                            "discountedPrice": "$19.99",
-                            "discountText": "-50%",
-                            "isFree": False,
-                        },
-                        "media": [],
-                    }
-                ],
-            }
+async def test_search_discount_fields(make_mock_store):
+    make_mock_store({"data": {"universalSearch": {"results": [
+        {
+            "__typename": "Product",
+            "id": "SALE_GAME",
+            "name": "Sale Game",
+            "platforms": ["PS4"],
+            "storeDisplayClassification": "FULL_GAME",
+            "price": {
+                "basePrice": "$39.99",
+                "discountedPrice": "$19.99",
+                "discountText": "-50%",
+                "isFree": False,
+            },
+            "media": [],
         }
-    }
-    mock_resp = mocker.AsyncMock()
-    mock_resp.status = 200
-    mock_resp.json = mocker.AsyncMock(return_value=fake)
-    mock_resp.__aenter__ = mocker.AsyncMock(return_value=mock_resp)
-    mock_resp.__aexit__ = mocker.AsyncMock(return_value=False)
-    mock_session = mocker.AsyncMock()
-    mock_session.get = mocker.Mock(return_value=mock_resp)
-    mock_session.__aenter__ = mocker.AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = mocker.AsyncMock(return_value=False)
-    mocker.patch("services.ps_store.aiohttp.ClientSession", return_value=mock_session)
+    ]}}})
 
     results = await search_games("sale game")
     assert len(results) == 1
@@ -143,77 +169,42 @@ async def test_search_no_cover_url(mock_store):
 
 
 @pytest.mark.asyncio
-async def test_search_free_price_is_none(mock_store):
-    fake = {
-        "data": {
-            "universalSearch": {
-                "results": [
-                    {
-                        "__typename": "Product",
-                        "id": "FREE_GAME",
-                        "name": "Free Game Spider Man",
-                        "platforms": ["PS5"],
-                        "storeDisplayClassification": "FULL_GAME",
-                        "price": {"basePrice": "Free", "discountedPrice": "Free", "discountText": None, "isFree": True},
-                        "media": [],
-                    }
-                ],
-            }
+async def test_search_free_price_is_none(make_mock_store):
+    make_mock_store({"data": {"universalSearch": {"results": [
+        {
+            "__typename": "Product",
+            "id": "FREE_GAME",
+            "name": "Free Game Spider Man",
+            "platforms": ["PS5"],
+            "storeDisplayClassification": "FULL_GAME",
+            "price": {"basePrice": "Free", "discountedPrice": "Free", "discountText": None, "isFree": True},
+            "media": [],
         }
-    }
-    # reuse mock_store pattern inline to avoid fixture conflict
-    import unittest.mock as m
+    ]}}})
 
-    import services.ps_store as mod
-    mock_resp = m.AsyncMock()
-    mock_resp.status = 200
-    mock_resp.json = m.AsyncMock(return_value=fake)
-    mock_resp.__aenter__ = m.AsyncMock(return_value=mock_resp)
-    mock_resp.__aexit__ = m.AsyncMock(return_value=False)
-    mock_session = m.AsyncMock()
-    mock_session.get = m.Mock(return_value=mock_resp)
-    mock_session.__aenter__ = m.AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = m.AsyncMock(return_value=False)
-    with m.patch.object(mod.aiohttp, "ClientSession", return_value=mock_session):
-        results = await search_games("spider man")
+    results = await search_games("spider man")
     assert results[0].price is None
     assert results[0].currency is None
 
 
 @pytest.mark.asyncio
-async def test_search_ps_plus_free_falls_back_to_base_price(mocker):
-    fake = {
-        "data": {
-            "universalSearch": {
-                "results": [
-                    {
-                        "__typename": "Product",
-                        "id": "PS_PLUS_GAME",
-                        "name": "Spider Man Game",
-                        "platforms": ["PS5"],
-                        "storeDisplayClassification": "FULL_GAME",
-                        "price": {
-                            "basePrice": "$19.99",
-                            "discountedPrice": "Free",
-                            "discountText": None,
-                            "isFree": True,
-                        },
-                        "media": [],
-                    }
-                ],
-            }
+async def test_search_ps_plus_free_falls_back_to_base_price(make_mock_store):
+    make_mock_store({"data": {"universalSearch": {"results": [
+        {
+            "__typename": "Product",
+            "id": "PS_PLUS_GAME",
+            "name": "Spider Man Game",
+            "platforms": ["PS5"],
+            "storeDisplayClassification": "FULL_GAME",
+            "price": {
+                "basePrice": "$19.99",
+                "discountedPrice": "Free",
+                "discountText": None,
+                "isFree": True,
+            },
+            "media": [],
         }
-    }
-    mock_resp = mocker.AsyncMock()
-    mock_resp.status = 200
-    mock_resp.json = mocker.AsyncMock(return_value=fake)
-    mock_resp.__aenter__ = mocker.AsyncMock(return_value=mock_resp)
-    mock_resp.__aexit__ = mocker.AsyncMock(return_value=False)
-    mock_session = mocker.AsyncMock()
-    mock_session.get = mocker.Mock(return_value=mock_resp)
-    mock_session.__aenter__ = mocker.AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = mocker.AsyncMock(return_value=False)
-    mocker.patch("services.ps_store.aiohttp.ClientSession", return_value=mock_session)
+    ]}}})
 
     results = await search_games("spider man")
     assert len(results) == 1
@@ -222,7 +213,7 @@ async def test_search_ps_plus_free_falls_back_to_base_price(mocker):
     assert results[0].base_price is None
 
 
-# --- get_game_info tests ---
+# --- get_game_info ---
 
 GAME_INFO_PS_ID = "EP9000-PPSA08338_00-MARVELSPIDERMAN2"
 
@@ -269,19 +260,8 @@ GAME_INFO_GQL = {
 
 
 @pytest.fixture
-def mock_game_info(mocker):
-    mock_resp = mocker.AsyncMock()
-    mock_resp.status = 200
-    mock_resp.json = mocker.AsyncMock(return_value=GAME_INFO_GQL)
-    mock_resp.__aenter__ = mocker.AsyncMock(return_value=mock_resp)
-    mock_resp.__aexit__ = mocker.AsyncMock(return_value=False)
-
-    mock_session = mocker.AsyncMock()
-    mock_session.get = mocker.Mock(return_value=mock_resp)
-    mock_session.__aenter__ = mocker.AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = mocker.AsyncMock(return_value=False)
-
-    mocker.patch("services.ps_store.aiohttp.ClientSession", return_value=mock_session)
+def mock_game_info(make_mock_store):
+    make_mock_store(GAME_INFO_GQL)
 
 
 @pytest.mark.asyncio
@@ -310,19 +290,7 @@ async def test_get_game_info_cover_url(mock_game_info):
 
 
 @pytest.mark.asyncio
-async def test_get_game_info_not_found_returns_none(mocker):
-    mock_resp = mocker.AsyncMock()
-    mock_resp.status = 200
-    mock_resp.json = mocker.AsyncMock(return_value={"data": {"productRetrieve": None}})
-    mock_resp.__aenter__ = mocker.AsyncMock(return_value=mock_resp)
-    mock_resp.__aexit__ = mocker.AsyncMock(return_value=False)
-
-    mock_session = mocker.AsyncMock()
-    mock_session.get = mocker.Mock(return_value=mock_resp)
-    mock_session.__aenter__ = mocker.AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = mocker.AsyncMock(return_value=False)
-
-    mocker.patch("services.ps_store.aiohttp.ClientSession", return_value=mock_session)
-
+async def test_get_game_info_not_found_returns_none(make_mock_store):
+    make_mock_store({"data": {"productRetrieve": None}})
     result = await get_game_info(GAME_INFO_PS_ID)
     assert result is None

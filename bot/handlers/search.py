@@ -3,21 +3,37 @@ import asyncio
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.formatters import format_game_list
+from bot.formatters import format_game_card, format_game_list
 from bot.keyboards.inline import search_results_keyboard
 from bot.states.subscription import SearchForm
 from services.currency import get_rates
-from services.ps_store import search_games
+from services.ps_store import GameResult, RegionPrice, get_game_info, normalize_title, search_games
 from services.region import get_user_regions
 from services.user import get_or_create_user
+
+# PS Store product ID prefixes by region group
+_COUNTRY_TO_PS_PREFIX: dict[str, str] = {
+    "us": "UP", "ca": "UP", "mx": "UP", "br": "UP", "ar": "UP", "cl": "UP", "co": "UP",
+    "jp": "JP",
+    "kr": "KP",
+}
+
+
+def _best_ps_id(region_code: str, ps_ids: dict[str, str]) -> str | None:
+    country = region_code.split("-")[-1].lower()
+    preferred = _COUNTRY_TO_PS_PREFIX.get(country, "EP")
+    return next((pid for pid in ps_ids.values() if pid.startswith(preferred)), None)
+
+
+_MAX_SEARCH_RESULTS = 15
 
 router = Router()
 
 
-async def _do_search(message: Message, session: AsyncSession, query: str) -> None:
+async def _do_search(message: Message, state: FSMContext, session: AsyncSession, query: str) -> None:
     user = await get_or_create_user(
         session, message.from_user.id, message.from_user.username
     )
@@ -33,17 +49,75 @@ async def _do_search(message: Message, session: AsyncSession, query: str) -> Non
         asyncio.gather(*[search_games(query, region.code) for region in user_regions]),
         get_rates(),
     )
-    games = results[0]
-    prices_by_game: dict[str, dict] = {}
+
+    # Merge results across regions by normalized title
+    by_title: dict[str, dict[str, RegionPrice]] = {}
+    rep_game: dict[str, GameResult] = {}
+    ps_ids_by_title: dict[str, dict[str, str]] = {}
+
     for region, region_games in zip(user_regions, results):
         for game in region_games:
-            prices_by_game.setdefault(game.ps_id, {})[region.code] = (
-                game.price, game.currency, game.base_price, game.discount_text
+            key = normalize_title(game.title)
+            by_title.setdefault(key, {})[region.code] = RegionPrice(
+                game.price, game.currency, game.base_price, game.discount_text, game.ps_id
             )
+            if key not in rep_game:
+                rep_game[key] = game
+            ps_ids_by_title.setdefault(key, {})[region.code] = game.ps_id
+
+    # Trim to display limit before fallback to avoid unnecessary requests
+    all_keys = list(rep_game)
+    visible_keys = set(all_keys[:_MAX_SEARCH_RESULTS])
+
+    # Fallback: for regions that didn't find a game by name, try fetching by ps_id.
+    # Each ps_id is tried only once per title to avoid redundant requests.
+    fallback_tasks: list[tuple[str, object, str]] = []
+    for title_key, found in by_title.items():
+        if title_key not in visible_keys:
+            continue
+        tried: set[str] = set()
+        for region in user_regions:
+            if region.code not in found:
+                best = _best_ps_id(region.code, ps_ids_by_title[title_key])
+                if best and best not in tried:
+                    tried.add(best)
+                    fallback_tasks.append((title_key, region, best))
+
+    if fallback_tasks:
+        fallback_results = await asyncio.gather(*[
+            get_game_info(ps_id, region.code)
+            for _, region, ps_id in fallback_tasks
+        ])
+        for (title_key, region, ps_id), result in zip(fallback_tasks, fallback_results):
+            if result is not None:
+                by_title[title_key][region.code] = RegionPrice(
+                    result.price, result.currency, result.base_price, result.discount_text, ps_id
+                )
+
+    all_games = [rep_game[k] for k in all_keys]
+    games = all_games[:_MAX_SEARCH_RESULTS]
+
+    entries = [
+        {
+            "game": rep_game[key].to_dict(),
+            "prices": {r: rp.to_dict() for r, rp in by_title[key].items()},
+        }
+        for key in all_keys[:_MAX_SEARCH_RESULTS]
+    ]
+
+    await state.set_state(SearchForm.showing_results)
+    await state.update_data(entries=entries, rates=rates)
+    prices_by_game = {rep_game[k].ps_id: by_title[k] for k in all_keys}
+
+    hidden = len(all_games) - len(games)
+    footer = "Want to track prices in more regions?\nAdd a new one: /add_region"
+    if hidden:
+        notice = f"<b>Showing {len(games)} of {len(all_games)} results</b>. Refine your query to see more."
+        footer = f"{notice}\n\n{footer}"
 
     text = format_game_list(
         title="Select a game to see details:",
-        footer="Want to track prices in more regions?\nAdd a new one: /add_region",
+        footer=footer,
         games=games,
         prices_by_game=prices_by_game,
         rates=rates,
@@ -55,7 +129,7 @@ async def _do_search(message: Message, session: AsyncSession, query: str) -> Non
 async def cmd_search(message: Message, state: FSMContext, session: AsyncSession) -> None:
     query = message.text.partition(" ")[2].strip()
     if query:
-        await _do_search(message, session, query)
+        await _do_search(message, state, session, query)
     else:
         await state.set_state(SearchForm.waiting_for_query)
         await message.answer("Type a game name:")
@@ -68,5 +142,34 @@ async def on_search_query(
     query = message.text.strip()
     if not query:
         return
-    await state.clear()
-    await _do_search(message, session, query)
+    await _do_search(message, state, session, query)
+
+
+@router.callback_query(F.data.startswith("game_select:"))
+async def on_game_select(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+
+    data = await state.get_data()
+    entries = data.get("entries", [])
+    rates = data.get("rates")
+
+    index = int(callback.data.split(":", 1)[1])
+    if index >= len(entries):
+        await callback.message.answer("Game not found. Please search again.")
+        return
+
+    entry = entries[index]
+    game = GameResult.from_dict(entry["game"])
+    prices = {region: RegionPrice.from_dict(v) for region, v in entry["prices"].items()}
+
+    caption = format_game_card(
+        game,
+        prices,
+        rates,
+        footer="Want to track prices in more regions?\nAdd a new one: /add_region",
+    )
+
+    if game.cover_url:
+        await callback.message.answer_photo(photo=game.cover_url, caption=caption)
+    else:
+        await callback.message.answer(caption)

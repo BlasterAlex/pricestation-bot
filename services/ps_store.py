@@ -35,6 +35,39 @@ _GQL_UPSELL_HASH = "a110672db9e20dc4f4d655fffd2f3a09730914ec3458cfb53de70cb2b526
 
 _GQL_SEARCH_PAGE_SIZE = 50
 
+_WARN_STATUSES = {403, 404, 410, 429}
+
+
+# Removes punctuation, trademark symbols, CJK/Korean language tags, and whitespace
+# so that titles like "Foo™: Bar (Standalone)" and "Foo Bar Stand Alone" collapse
+# to the same key, and Asian store suffixes like "(중국어, 한국어)" are ignored.
+def normalize_title(title: str) -> str:
+    t = re.sub(r"[™®©:().,'\"!?\-]", "", title.lower())
+    t = re.sub(r"[぀-鿿가-퟿]", "", t)
+    return re.sub(r"\s+", "", t)
+
+
+@dataclass
+class RegionPrice:
+    price: float | None
+    currency: str | None
+    base_price: float | None
+    discount_text: str | None
+    ps_id: str | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "price": self.price,
+            "currency": self.currency,
+            "base_price": self.base_price,
+            "discount_text": self.discount_text,
+            "ps_id": self.ps_id,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "RegionPrice":
+        return cls(**d)
+
 
 @dataclass
 class GameResult:
@@ -193,7 +226,8 @@ async def search_games(query: str, region: str = "en-us") -> list[GameResult]:
     async with aiohttp.ClientSession() as session:
         async with session.get(f"{_GQL_URL}?{params}", headers=headers) as resp:
             if resp.status != 200:
-                logger.warning("search_games: HTTP %d [query=%r region=%s]", resp.status, query, region)
+                level = logging.WARNING if resp.status in _WARN_STATUSES else logging.ERROR
+                logger.log(level, "search_games: HTTP %d [query=%r region=%s]", resp.status, query, region)
                 return []
             data = await resp.json(content_type=None)
 
@@ -228,7 +262,8 @@ async def get_game_info(ps_id: str, region: str = "en-us") -> GameResult | None:
             headers=_gql_headers(region, f"https://store.playstation.com/{region}/product/{ps_id}/"),
         ) as resp:
             if resp.status != 200:
-                logger.warning("get_game_info: HTTP %d [ps_id=%s region=%s]", resp.status, ps_id, region)
+                level = logging.WARNING if resp.status in _WARN_STATUSES else logging.ERROR
+                logger.log(level, "get_game_info: HTTP %d [ps_id=%s region=%s]", resp.status, ps_id, region)
                 return None
             data = await resp.json(content_type=None)
 
