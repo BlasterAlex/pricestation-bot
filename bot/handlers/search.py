@@ -61,7 +61,8 @@ async def _do_search(message: Message, state: FSMContext, session: AsyncSession,
             by_title.setdefault(key, {})[region.code] = RegionPrice(
                 game.price, game.currency, game.base_price, game.discount_text, game.ps_id
             )
-            if key not in rep_game:
+            # Prefer ASCII title so localized prefixes ("Набір", "세트" etc.) don't win
+            if key not in rep_game or game.title.isascii():
                 rep_game[key] = game
             ps_ids_by_title.setdefault(key, {})[region.code] = game.ps_id
 
@@ -70,17 +71,14 @@ async def _do_search(message: Message, state: FSMContext, session: AsyncSession,
     visible_keys = set(all_keys[:_MAX_SEARCH_RESULTS])
 
     # Fallback: for regions that didn't find a game by name, try fetching by ps_id.
-    # Each ps_id is tried only once per title to avoid redundant requests.
     fallback_tasks: list[tuple[str, object, str]] = []
     for title_key, found in by_title.items():
         if title_key not in visible_keys:
             continue
-        tried: set[str] = set()
         for region in user_regions:
             if region.code not in found:
                 best = _best_ps_id(region.code, ps_ids_by_title[title_key])
-                if best and best not in tried:
-                    tried.add(best)
+                if best:
                     fallback_tasks.append((title_key, region, best))
 
     if fallback_tasks:

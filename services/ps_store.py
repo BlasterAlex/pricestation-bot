@@ -38,12 +38,12 @@ _GQL_SEARCH_PAGE_SIZE = 50
 _WARN_STATUSES = {403, 404, 410, 429}
 
 
-# Removes punctuation, trademark symbols, CJK/Korean language tags, and whitespace
-# so that titles like "Foo™: Bar (Standalone)" and "Foo Bar Stand Alone" collapse
-# to the same key, and Asian store suffixes like "(중국어, 한국어)" are ignored.
+# Removes punctuation, trademark symbols, non-ASCII characters (Cyrillic, CJK,
+# locale prefixes like "Набір", etc.), and whitespace so that titles collapse
+# to the same key regardless of regional language prefix.
 def normalize_title(title: str) -> str:
-    t = re.sub(r"[™®©:().,'\"!?\-]", "", title.lower())
-    t = re.sub(r"[぀-鿿가-퟿]", "", t)
+    t = re.sub(r"[™®©:().,'\"!?\-/]", "", title.lower())
+    t = re.sub(r"[^\x00-\x7f]", "", t)
     return re.sub(r"\s+", "", t)
 
 

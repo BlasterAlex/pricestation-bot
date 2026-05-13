@@ -31,8 +31,20 @@ def test_normalize_title_strips_japanese_chars():
         == normalize_title("FINAL FANTASY VII")
     )
 
+def test_normalize_title_strips_cyrillic_prefix():
+    assert (
+        normalize_title("Набір FINAL FANTASY VII REMAKE & REBIRTH Twin Pack")
+        == normalize_title("FINAL FANTASY VII REMAKE & REBIRTH Twin Pack")
+    )
+
 def test_normalize_title_collapses_spaces():
     assert normalize_title("God  of   War") == normalize_title("God of War")
+
+def test_normalize_title_preserves_numbers():
+    assert normalize_title("FIFA 23") == "fifa23"
+
+def test_normalize_title_numbers_across_regions():
+    assert normalize_title("FIFA 23 (중국어, 한국어)") == normalize_title("FIFA 23")
 
 
 # --- fixtures ---

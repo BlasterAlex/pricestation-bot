@@ -6,6 +6,8 @@ services:
       POSTGRES_USER: pricestation
       POSTGRES_PASSWORD: pricestation
       POSTGRES_DB: pricestation
+    ports:
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped

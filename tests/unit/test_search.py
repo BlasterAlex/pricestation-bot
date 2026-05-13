@@ -45,6 +45,53 @@ def test_best_ps_id_multiple_ep_returns_first():
     assert result.startswith("EP")
 
 
+# --- rep_game title selection ---
+
+@pytest.mark.asyncio
+async def test_ascii_title_preferred_over_cyrillic(mocker, common_mocks):
+    """ASCII title from a later region should replace a non-ASCII title found first."""
+    regions = [_region("uk-ua"), _region("en-gb")]
+    mocker.patch("bot.handlers.search.get_user_regions", new_callable=AsyncMock, return_value=regions)
+
+    cyrillic_game = _make_game(EP_ID, title="Набір FINAL FANTASY VII REMAKE & REBIRTH Twin Pack")
+    ascii_game = _make_game(EP_ID, title="FINAL FANTASY VII REMAKE & REBIRTH Twin Pack")
+    mocker.patch("bot.handlers.search.search_games", new_callable=AsyncMock,
+                 side_effect=[[cyrillic_game], [ascii_game]])
+    mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock)
+
+    state = AsyncMock()
+    captured = {}
+    state.update_data = AsyncMock(side_effect=lambda **kw: captured.update(kw))
+
+    await _do_search(_make_message(), state, AsyncMock(), "final fantasy")
+
+    entries = captured.get("entries", [])
+    assert len(entries) == 1
+    assert entries[0]["game"]["title"] == "FINAL FANTASY VII REMAKE & REBIRTH Twin Pack"
+
+
+@pytest.mark.asyncio
+async def test_non_ascii_title_kept_when_no_ascii_alternative(mocker, common_mocks):
+    """If only non-ASCII title exists (regional exclusive), it should still be shown."""
+    regions = [_region("uk-ua")]
+    mocker.patch("bot.handlers.search.get_user_regions", new_callable=AsyncMock, return_value=regions)
+
+    cyrillic_game = _make_game(EP_ID, title="Набір FINAL FANTASY VII REMAKE & REBIRTH Twin Pack")
+    mocker.patch("bot.handlers.search.search_games", new_callable=AsyncMock,
+                 side_effect=[[cyrillic_game]])
+    mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock)
+
+    state = AsyncMock()
+    captured = {}
+    state.update_data = AsyncMock(side_effect=lambda **kw: captured.update(kw))
+
+    await _do_search(_make_message(), state, AsyncMock(), "final fantasy")
+
+    entries = captured.get("entries", [])
+    assert len(entries) == 1
+    assert entries[0]["game"]["title"] == "Набір FINAL FANTASY VII REMAKE & REBIRTH Twin Pack"
+
+
 # --- fallback helpers ---
 
 def _make_game(ps_id, title="Test Game", price=49.99, currency="€"):
@@ -126,8 +173,8 @@ async def test_fallback_not_fired_when_all_regions_found(mocker, common_mocks):
 
 
 @pytest.mark.asyncio
-async def test_fallback_deduplication(mocker, common_mocks):
-    """en-gb finds game (EP id); de-de and fr-fr both miss → get_game_info called once, not twice."""
+async def test_fallback_fires_per_region(mocker, common_mocks):
+    """en-gb finds game (EP id); de-de and fr-fr both miss → get_game_info called for each missing region."""
     regions = [_region("en-gb"), _region("de-de"), _region("fr-fr")]
     mocker.patch("bot.handlers.search.get_user_regions", new_callable=AsyncMock, return_value=regions)
 
@@ -139,8 +186,9 @@ async def test_fallback_deduplication(mocker, common_mocks):
 
     await _do_search(_make_message(), AsyncMock(), AsyncMock(), "test game")
 
-    assert mock_get_info.call_count == 1
-    mock_get_info.assert_called_once_with(EP_ID, "de-de")
+    assert mock_get_info.call_count == 2
+    calls = {call.args for call in mock_get_info.call_args_list}
+    assert calls == {(EP_ID, "de-de"), (EP_ID, "fr-fr")}
 
 
 @pytest.mark.asyncio
