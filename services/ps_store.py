@@ -286,8 +286,7 @@ async def get_game_info(ps_id: str, region: str = "en-us") -> GameResult | None:
         divisor = 1 if iso in _WHOLE_UNIT_CURRENCIES else 100
         dv = price_cta.get("discountedValue")
         bv = price_cta.get("basePriceValue")
-        value = dv if dv is not None else bv
-        price = value / divisor if value is not None else None
+        price = (dv if dv is not None else bv or 0) / divisor or None
         base_price = bv / divisor if bv is not None and bv != dv else None
         currency = PS_ISO_TO_SYMBOL.get(iso, iso)
         discount_text = price_cta.get("discountText")

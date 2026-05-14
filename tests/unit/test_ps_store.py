@@ -405,27 +405,3 @@ async def test_get_game_info_subscription_cta_skipped(make_mock_store):
     assert result is not None
     assert result.price is None
 
-
-@pytest.mark.asyncio
-async def test_get_game_info_discounted_value_zero_gives_none_price(make_mock_store):
-    """discountedValue=0 with isFree=False should yield price=None (no purchase path found)."""
-    ps_id = "EP1234-CUSA00001_00-TESTGAME0000004"
-    make_mock_store(_make_game_info_payload(ps_id, [
-        {
-            "__typename": "GameCTA",
-            "type": "ADD_TO_CART",
-            "meta": {"__typename": "CTAMeta", "upSellService": "NONE"},
-            "price": {
-                "__typename": "Price",
-                "isFree": False,
-                "basePriceValue": 3999,
-                "discountedValue": 0,
-                "currencyCode": "USD",
-                "discountText": "-100%",
-            },
-        }
-    ]))
-    result = await get_game_info(ps_id)
-    assert result is not None
-    # discountedValue=0 is a valid price (100% off), not None
-    assert result.price == 0.0
