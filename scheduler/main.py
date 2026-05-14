@@ -1,12 +1,11 @@
 import asyncio
-import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from config import settings
+from config import settings, setup_logging
 from scheduler.tasks.price_check import check_prices
 
-logging.basicConfig(level=logging.INFO)
+setup_logging()
 
 
 async def main() -> None:
