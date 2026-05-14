@@ -306,3 +306,126 @@ async def test_get_game_info_not_found_returns_none(make_mock_store):
     make_mock_store({"data": {"productRetrieve": None}})
     result = await get_game_info(GAME_INFO_PS_ID)
     assert result is None
+
+
+def _make_game_info_payload(ps_id: str, webctas: list) -> dict:
+    return {
+        "data": {
+            "productRetrieve": {
+                "__typename": "Product",
+                "id": ps_id,
+                "topCategory": "GAME",
+                "concept": {
+                    "__typename": "Concept",
+                    "products": [
+                        {
+                            "__typename": "Product",
+                            "id": ps_id,
+                            "name": "Test Game",
+                            "platforms": ["PS4", "PS5"],
+                            "storeDisplayClassification": "FULL_GAME",
+                            "media": [],
+                            "webctas": webctas,
+                        }
+                    ],
+                },
+            }
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_game_info_null_upsell_service_returns_price(make_mock_store):
+    """CTA with upSellService=null should be treated as a direct purchase."""
+    ps_id = "EP1234-CUSA00001_00-TESTGAME0000001"
+    make_mock_store(_make_game_info_payload(ps_id, [
+        {
+            "__typename": "GameCTA",
+            "type": "ADD_TO_CART",
+            "meta": {"__typename": "CTAMeta", "upSellService": None},
+            "price": {
+                "__typename": "Price",
+                "isFree": False,
+                "basePriceValue": 3999,
+                "discountedValue": 3999,
+                "currencyCode": "USD",
+                "discountText": None,
+            },
+        }
+    ]))
+    result = await get_game_info(ps_id)
+    assert result is not None
+    assert result.price == 39.99
+    assert result.currency == "$"
+
+
+@pytest.mark.asyncio
+async def test_get_game_info_missing_meta_returns_price(make_mock_store):
+    """CTA without a meta field at all should be treated as a direct purchase."""
+    ps_id = "EP1234-CUSA00001_00-TESTGAME0000002"
+    make_mock_store(_make_game_info_payload(ps_id, [
+        {
+            "__typename": "GameCTA",
+            "type": "ADD_TO_CART",
+            "price": {
+                "__typename": "Price",
+                "isFree": False,
+                "basePriceValue": 2999,
+                "discountedValue": 2999,
+                "currencyCode": "GBP",
+                "discountText": None,
+            },
+        }
+    ]))
+    result = await get_game_info(ps_id)
+    assert result is not None
+    assert result.price == 29.99
+
+
+@pytest.mark.asyncio
+async def test_get_game_info_subscription_cta_skipped(make_mock_store):
+    """CTA with a non-NONE upSellService should not be used for price."""
+    ps_id = "EP1234-CUSA00001_00-TESTGAME0000003"
+    make_mock_store(_make_game_info_payload(ps_id, [
+        {
+            "__typename": "GameCTA",
+            "type": "ADD_TO_CART",
+            "meta": {"__typename": "CTAMeta", "upSellService": "PS_PLUS"},
+            "price": {
+                "__typename": "Price",
+                "isFree": True,
+                "basePriceValue": 3999,
+                "discountedValue": 0,
+                "currencyCode": "USD",
+                "discountText": None,
+            },
+        }
+    ]))
+    result = await get_game_info(ps_id)
+    assert result is not None
+    assert result.price is None
+
+
+@pytest.mark.asyncio
+async def test_get_game_info_discounted_value_zero_gives_none_price(make_mock_store):
+    """discountedValue=0 with isFree=False should yield price=None (no purchase path found)."""
+    ps_id = "EP1234-CUSA00001_00-TESTGAME0000004"
+    make_mock_store(_make_game_info_payload(ps_id, [
+        {
+            "__typename": "GameCTA",
+            "type": "ADD_TO_CART",
+            "meta": {"__typename": "CTAMeta", "upSellService": "NONE"},
+            "price": {
+                "__typename": "Price",
+                "isFree": False,
+                "basePriceValue": 3999,
+                "discountedValue": 0,
+                "currencyCode": "USD",
+                "discountText": "-100%",
+            },
+        }
+    ]))
+    result = await get_game_info(ps_id)
+    assert result is not None
+    # discountedValue=0 is a valid price (100% off), not None
+    assert result.price == 0.0
