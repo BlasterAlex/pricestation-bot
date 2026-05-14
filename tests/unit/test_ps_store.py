@@ -307,5 +307,3 @@ async def test_get_game_info_not_found_returns_none(make_mock_store):
     result = await get_game_info(GAME_INFO_PS_ID)
     assert result is None
 
-
-
