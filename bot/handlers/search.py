@@ -92,6 +92,8 @@ async def _do_search(message: Message, state: FSMContext, session: AsyncSession,
                     result.price, result.currency, result.base_price, result.discount_text, ps_id
                 )
 
+    all_keys = [k for k in all_keys if any(rp.price is not None for rp in by_title.get(k, {}).values())]
+
     all_games = [rep_game[k] for k in all_keys]
     games = all_games[:_MAX_SEARCH_RESULTS]
 

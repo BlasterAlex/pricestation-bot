@@ -192,6 +192,51 @@ async def test_fallback_fires_per_region(mocker, common_mocks):
 
 
 @pytest.mark.asyncio
+async def test_free_games_excluded_from_results(mocker, common_mocks):
+    """Games with no price in any region (free/demo) should not appear in the list."""
+    regions = [_region("en-us")]
+    mocker.patch("bot.handlers.search.get_user_regions", new_callable=AsyncMock, return_value=regions)
+
+    paid_game = _make_game(UP_ID, title="Paid Game", price=39.99, currency="$")
+    free_game = _make_game("UP9000-PPSA99999_00-FREE", title="Free Game Demo", price=None, currency=None)
+    mocker.patch("bot.handlers.search.search_games", new_callable=AsyncMock, return_value=[paid_game, free_game])
+    mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock)
+
+    state = AsyncMock()
+    captured = {}
+    state.update_data = AsyncMock(side_effect=lambda **kw: captured.update(kw))
+
+    await _do_search(_make_message(), state, AsyncMock(), "game")
+
+    entries = captured.get("entries", [])
+    titles = [e["game"]["title"] for e in entries]
+    assert "Paid Game" in titles
+    assert "Free Game Demo" not in titles
+
+
+@pytest.mark.asyncio
+async def test_free_game_excluded_after_fallback(mocker, common_mocks):
+    """Game found via fallback with price=None should still be excluded."""
+    regions = [_region("en-gb"), _region("de-de")]
+    mocker.patch("bot.handlers.search.get_user_regions", new_callable=AsyncMock, return_value=regions)
+
+    free_game = _make_game(EP_ID, title="Free Demo", price=None, currency=None)
+    mocker.patch("bot.handlers.search.search_games", new_callable=AsyncMock, side_effect=[[free_game], []])
+
+    fallback_free = _make_game(EP_ID, title="Free Demo", price=None, currency=None)
+    mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock, return_value=fallback_free)
+
+    state = AsyncMock()
+    captured = {}
+    state.update_data = AsyncMock(side_effect=lambda **kw: captured.update(kw))
+
+    await _do_search(_make_message(), state, AsyncMock(), "free demo")
+
+    entries = captured.get("entries", [])
+    assert len(entries) == 0
+
+
+@pytest.mark.asyncio
 async def test_fallback_result_merged_into_prices(mocker, common_mocks):
     """Successful fallback adds the region's price to by_title, which ends up in FSM state."""
     regions = [_region("en-gb"), _region("de-de")]
