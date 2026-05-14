@@ -201,8 +201,7 @@ def _gql_headers(region: str, referer: str) -> dict:
 def _outright_price(webctas: list[dict]) -> dict | None:
     for cta in webctas:
         if cta.get("type") == "ADD_TO_CART":
-            upsell = (cta.get("meta") or {}).get("upSellService")
-            if upsell in ("NONE", None):
+            if (cta.get("meta") or {}).get("upSellService") == "NONE":
                 return cta.get("price")
     return None
 
