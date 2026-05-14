@@ -202,7 +202,9 @@ def _outright_price(webctas: list[dict]) -> dict | None:
     for cta in webctas:
         if cta.get("type") == "ADD_TO_CART":
             if (cta.get("meta") or {}).get("upSellService") == "NONE":
-                return cta.get("price")
+                price = cta.get("price")
+                if not (price or {}).get("isFree"):
+                    return price
     return None
 
 

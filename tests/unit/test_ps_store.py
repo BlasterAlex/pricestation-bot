@@ -306,3 +306,33 @@ async def test_get_game_info_not_found_returns_none(make_mock_store):
     make_mock_store({"data": {"productRetrieve": None}})
     result = await get_game_info(GAME_INFO_PS_ID)
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_game_info_skips_free_trial_cta(make_mock_store):
+    """Free trial CTA appears first; paid CTA must still be found."""
+    ps_id = "JP0101-PPSA05000_00-MINECRAFTPS50001"
+    make_mock_store({"data": {"productRetrieve": {"concept": {"products": [{
+        "id": ps_id,
+        "name": "Minecraft",
+        "platforms": ["PS5"],
+        "storeDisplayClassification": "FULL_GAME",
+        "media": [],
+        "webctas": [
+            {
+                "type": "ADD_TO_CART",
+                "meta": {"upSellService": "NONE"},
+                "price": {"isFree": True, "basePriceValue": 0, "discountedValue": 0, "currencyCode": "JPY"},
+            },
+            {
+                "type": "ADD_TO_CART",
+                "meta": {"upSellService": "NONE"},
+                "price": {"isFree": False, "basePriceValue": 2640, "discountedValue": 2640, "currencyCode": "JPY"},
+            },
+        ],
+    }]}}}})
+
+    result = await get_game_info(ps_id, "ja-jp")
+    assert result is not None
+    assert result.price == 2640
+    assert result.currency == "¥"
