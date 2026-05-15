@@ -36,7 +36,7 @@ async def user(session: AsyncSession):
 
 @pytest_asyncio.fixture
 async def game(session: AsyncSession):
-    g = Game(ps_id="EP0001-CUSA00001_00", title="Test Game")
+    g = Game(title="Test Game", normalized_title="testgame")
     session.add(g)
     await session.flush()
     return g
