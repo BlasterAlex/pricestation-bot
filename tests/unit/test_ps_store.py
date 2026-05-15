@@ -1,6 +1,6 @@
 import pytest
 
-from services.ps_store import GameResult, get_game_info, normalize_title, search_games
+from services.ps_store import GameInfo, RegionPrice, get_game_info, normalize_title, search_games
 
 # --- normalize_title ---
 
@@ -122,28 +122,29 @@ def mock_store(make_mock_store):
 @pytest.mark.asyncio
 async def test_search_returns_only_games(mock_store):
     results = await search_games("spider man")
-    types = {r.type for r in results}
+    types = {game.type for game, _ in results}
     assert types <= {"FULL_GAME", "PREMIUM_EDITION", "GAME_BUNDLE"}
 
 
 @pytest.mark.asyncio
 async def test_search_filters_non_games(mock_store):
     results = await search_games("spider man")
-    ids = [r.ps_id for r in results]
+    ids = [price.ps_id for _, price in results]
     assert "UP9000-PPSA03016_00-MSM2TU1000000000" not in ids
 
 
 @pytest.mark.asyncio
 async def test_search_result_fields(mock_store):
     results = await search_games("spider man")
-    game = next(r for r in results if r.ps_id == "UP9000-PPSA03016_00-MARVELSPIDERMAN2")
-    assert isinstance(game, GameResult)
+    game, price = next((g, p) for g, p in results if p.ps_id == "UP9000-PPSA03016_00-MARVELSPIDERMAN2")
+    assert isinstance(game, GameInfo)
+    assert isinstance(price, RegionPrice)
     assert game.title == "Marvel's Spider-Man 2"
     assert game.platforms == ["PS5"]
-    assert game.price == 69.99
-    assert game.currency == "$"
-    assert game.base_price is None
-    assert game.discount_text is None
+    assert price.price == 69.99
+    assert price.currency == "$"
+    assert price.base_price is None
+    assert price.discount_text is None
     assert game.cover_url == "https://example.com/cover.png"
 
 
@@ -168,15 +169,16 @@ async def test_search_discount_fields(make_mock_store):
 
     results = await search_games("sale game")
     assert len(results) == 1
-    assert results[0].price == 19.99
-    assert results[0].base_price == 39.99
-    assert results[0].discount_text == "-50%"
+    _, price = results[0]
+    assert price.price == 19.99
+    assert price.base_price == 39.99
+    assert price.discount_text == "-50%"
 
 
 @pytest.mark.asyncio
 async def test_search_no_cover_url(mock_store):
     results = await search_games("spider man")
-    game = next(r for r in results if r.ps_id == "UP9000-PPSA01467_00-MARVELSSPIDERMAN")
+    game, _ = next((g, p) for g, p in results if p.ps_id == "UP9000-PPSA01467_00-MARVELSSPIDERMAN")
     assert game.cover_url is None
 
 
@@ -195,8 +197,9 @@ async def test_search_free_price_is_none(make_mock_store):
     ]}}})
 
     results = await search_games("spider man")
-    assert results[0].price is None
-    assert results[0].currency is None
+    _, price = results[0]
+    assert price.price is None
+    assert price.currency is None
 
 
 @pytest.mark.asyncio
@@ -220,9 +223,10 @@ async def test_search_ps_plus_free_falls_back_to_base_price(make_mock_store):
 
     results = await search_games("spider man")
     assert len(results) == 1
-    assert results[0].price == 19.99
-    assert results[0].currency == "$"
-    assert results[0].base_price is None
+    _, price = results[0]
+    assert price.price == 19.99
+    assert price.currency == "$"
+    assert price.base_price is None
 
 
 # --- get_game_info ---
@@ -279,26 +283,31 @@ def mock_game_info(make_mock_store):
 @pytest.mark.asyncio
 async def test_get_game_info_returns_game(mock_game_info):
     result = await get_game_info(GAME_INFO_PS_ID)
-    assert isinstance(result, GameResult)
-    assert result.ps_id == GAME_INFO_PS_ID
-    assert result.title == "Marvel's Spider-Man 2"
-    assert result.platforms == ["PS5"]
-    assert result.type == "FULL_GAME"
+    assert result is not None
+    game, _ = result
+    assert isinstance(game, GameInfo)
+    assert game.title == "Marvel's Spider-Man 2"
+    assert game.platforms == ["PS5"]
+    assert game.type == "FULL_GAME"
 
 
 @pytest.mark.asyncio
 async def test_get_game_info_price_fields(mock_game_info):
     result = await get_game_info(GAME_INFO_PS_ID)
-    assert result.price == 59.99
-    assert result.base_price == 79.99
-    assert result.currency == "€"
-    assert result.discount_text == "-25%"
+    assert result is not None
+    _, price = result
+    assert price.price == 59.99
+    assert price.base_price == 79.99
+    assert price.currency == "€"
+    assert price.discount_text == "-25%"
 
 
 @pytest.mark.asyncio
 async def test_get_game_info_cover_url(mock_game_info):
     result = await get_game_info(GAME_INFO_PS_ID)
-    assert result.cover_url == "https://example.com/ep_cover.png"
+    assert result is not None
+    game, _ = result
+    assert game.cover_url == "https://example.com/ep_cover.png"
 
 
 @pytest.mark.asyncio
@@ -334,5 +343,6 @@ async def test_get_game_info_skips_free_trial_cta(make_mock_store):
 
     result = await get_game_info(ps_id, "ja-jp")
     assert result is not None
-    assert result.price == 2640
-    assert result.currency == "¥"
+    _, price = result
+    assert price.price == 2640
+    assert price.currency == "¥"

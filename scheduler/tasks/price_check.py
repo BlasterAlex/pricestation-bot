@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
 from aiogram import Bot
 from sqlalchemy import select
 
 from config import settings
-from db.models import Game, Notification, Price, Region, Subscription, User
+from db.models import GameRegion, Subscription, User
 from db.session import AsyncSessionFactory
-from services import notifier, price, ps_store
+from services import notifier, price
+from services.ps_store import get_game_info
 
 logger = logging.getLogger(__name__)
 
@@ -16,67 +18,63 @@ logger = logging.getLogger(__name__)
 async def check_prices() -> None:
     logger.info("Starting price check")
     async with AsyncSessionFactory() as session:
-        pairs = await price.get_active_pairs(session)
-        for game_id, region_id in pairs:
-            await _check_pair(session, game_id, region_id)
+        game_regions = await price.get_game_regions_to_check(session)
+        bot = Bot(token=settings.BOT_TOKEN)
+        try:
+            for gr in game_regions:
+                await _check_game_region(session, gr, bot)
+        finally:
+            await bot.session.close()
     logger.info("Price check finished")
 
 
-async def _check_pair(session, game_id: int, region_id: int) -> None:
-    game = await session.get(Game, game_id)
-    region = await session.get(Region, region_id)
-    if not game or not region:
+async def _check_game_region(session, gr: GameRegion, bot: Bot) -> None:
+    result = await get_game_info(gr.ps_id, gr.region.code)
+    if result is None:
         return
 
-    current_amount = await ps_store.get_game_price(game.ps_id, region.code)
-    if current_amount is None:
+    game_info, region_price = result
+    if region_price is None or region_price.price is None:
         return
 
-    latest = await price.get_latest_price(session, game_id, region_id)
-    session.add(Price(game_id=game_id, region_id=region_id, amount=current_amount))
+    new_price = region_price.price
+    old_stored = float(gr.current_price) if gr.current_price is not None else None
+    price_dropped = old_stored is not None and price.is_price_dropped(old_stored, new_price)
 
-    if latest and current_amount < float(latest.amount):
-        await _notify_subscribers(
-            session, game_id, region_id,
-            float(latest.amount), current_amount,
-            region.currency, game.title,
-        )
+    if price_dropped:
+        gr.old_price = gr.current_price
+    gr.current_price = new_price
+    gr.base_price = region_price.base_price
+    gr.discount_text = region_price.discount_text
+    gr.last_checked = datetime.now(timezone.utc)
+
+    gr.game.title = game_info.title
+    gr.game.cover_url = game_info.cover_url
+    gr.game.game_type = game_info.type
+    gr.game.platforms = game_info.platforms
 
     await session.commit()
 
+    if price_dropped:
+        await _notify_subscribers(session, gr, old_stored, new_price, bot)
+
 
 async def _notify_subscribers(
-    session,
-    game_id: int,
-    region_id: int,
-    old_price: float,
-    new_price: float,
-    currency: str,
-    title: str,
+    session, gr: GameRegion, old_price: float, new_price: float, bot: Bot
 ) -> None:
     result = await session.execute(
-        select(Subscription).where(
-            Subscription.game_id == game_id,
-            Subscription.region_id == region_id,
-        )
+        select(Subscription).where(Subscription.game_id == gr.game_id)
     )
     subscriptions = result.scalars().all()
 
-    bot = Bot(token=settings.BOT_TOKEN)
-    try:
-        for sub in subscriptions:
-            user = await session.get(User, sub.user_id)
-            if user and (
-                sub.target_price is None or new_price <= float(sub.target_price)
-            ):
-                await notifier.send_price_drop(
-                    bot, user.telegram_id, title, old_price, new_price, currency
-                )
-                session.add(Notification(
-                    user_id=sub.user_id,
-                    subscription_id=sub.id,
-                    old_price=old_price,
-                    new_price=new_price,
-                ))
-    finally:
-        await bot.session.close()
+    for sub in subscriptions:
+        user = await session.get(User, sub.user_id)
+        if user:
+            await notifier.send_price_drop(
+                bot,
+                user.telegram_id,
+                gr.game.title,
+                old_price,
+                new_price,
+                gr.region.currency or "",
+            )

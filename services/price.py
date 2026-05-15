@@ -1,23 +1,28 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from db.models import Price, Subscription
+from db.models import GameRegion, Subscription
 
 
-async def get_active_pairs(session: AsyncSession) -> list[tuple[int, int]]:
+def is_price_dropped(old_price: float, new_price: float) -> bool:
+    return new_price < old_price
+
+
+def price_drop_percent(old_price: float, new_price: float) -> int:
+    return round((old_price - new_price) / old_price * 100)
+
+
+async def get_game_regions_to_check(session: AsyncSession) -> list[GameRegion]:
+    """Return GameRegion rows for games with at least one subscriber and a stored ps_id."""
     result = await session.execute(
-        select(Subscription.game_id, Subscription.region_id).distinct()
+        select(GameRegion)
+        .join(Subscription, Subscription.game_id == GameRegion.game_id)
+        .where(GameRegion.ps_id.isnot(None))
+        .options(
+            selectinload(GameRegion.game),
+            selectinload(GameRegion.region),
+        )
+        .distinct()
     )
-    return result.all()
-
-
-async def get_latest_price(
-    session: AsyncSession, game_id: int, region_id: int
-) -> Price | None:
-    result = await session.execute(
-        select(Price)
-        .where(Price.game_id == game_id, Price.region_id == region_id)
-        .order_by(Price.checked_at.desc())
-        .limit(1)
-    )
-    return result.scalar_one_or_none()
+    return list(result.scalars().all())

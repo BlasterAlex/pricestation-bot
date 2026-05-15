@@ -13,8 +13,7 @@ class Region(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
-    subscriptions: Mapped[list["Subscription"]] = relationship(back_populates="region")
-    prices: Mapped[list["Price"]] = relationship(back_populates="region")
+    game_regions: Mapped[list["GameRegion"]] = relationship(back_populates="region")
     users: Mapped[list["User"]] = relationship(
         secondary="user_regions", back_populates="regions"
     )

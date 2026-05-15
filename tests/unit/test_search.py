@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from bot.handlers.search import _best_ps_id, _do_search
-from services.ps_store import GameResult
+from services.ps_store import GameInfo, RegionPrice
 
 UP_ID = "UP9000-PPSA03016_00-GAME"
 EP_ID = "EP9000-CUSA12345_00-GAME"
@@ -95,10 +95,9 @@ async def test_non_ascii_title_kept_when_no_ascii_alternative(mocker, common_moc
 # --- fallback helpers ---
 
 def _make_game(ps_id, title="Test Game", price=49.99, currency="€"):
-    return GameResult(
-        ps_id=ps_id, title=title, platforms=["PS5"], type="FULL_GAME",
-        price=price, currency=currency, base_price=None, discount_text=None, cover_url=None,
-    )
+    game = GameInfo(title=title, platforms=["PS5"], type="FULL_GAME", cover_url=None)
+    region_price = RegionPrice(price=price, currency=currency, base_price=None, discount_text=None, ps_id=ps_id)
+    return game, region_price
 
 def _region(code):
     r = MagicMock()
@@ -200,7 +199,7 @@ async def test_free_games_excluded_from_results(mocker, common_mocks):
     paid_game = _make_game(UP_ID, title="Paid Game", price=39.99, currency="$")
     free_game = _make_game("UP9000-PPSA99999_00-FREE", title="Free Game Demo", price=None, currency=None)
     mocker.patch("bot.handlers.search.search_games", new_callable=AsyncMock, return_value=[paid_game, free_game])
-    mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock)
+    mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock, return_value=None)
 
     state = AsyncMock()
     captured = {}
@@ -264,3 +263,25 @@ async def test_fallback_result_merged_into_prices(mocker, common_mocks):
     prices = entries[0]["prices"]
     assert "de-de" in prices
     assert prices["de-de"]["price"] == 39.99
+
+
+@pytest.mark.asyncio
+async def test_paid_price_not_overwritten_by_free(mocker, common_mocks):
+    """If a region returns both a paid and a free product with the same title, the paid price wins."""
+    regions = [_region("ja-jp")]
+    mocker.patch("bot.handlers.search.get_user_regions", new_callable=AsyncMock, return_value=regions)
+
+    paid = _make_game(JP_ID, title="Minecraft", price=2640.0, currency="¥")
+    free = _make_game("JP0127-CUSA00283_00-MINECRAFTPS40000", title="Minecraft", price=None, currency=None)
+    mocker.patch("bot.handlers.search.search_games", new_callable=AsyncMock, return_value=[paid, free])
+    mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock, return_value=None)
+
+    state = AsyncMock()
+    captured = {}
+    state.update_data = AsyncMock(side_effect=lambda **kw: captured.update(kw))
+
+    await _do_search(_make_message(), state, AsyncMock(), "minecraft")
+
+    entries = captured.get("entries", [])
+    assert len(entries) == 1
+    assert entries[0]["prices"]["ja-jp"]["price"] == 2640.0
