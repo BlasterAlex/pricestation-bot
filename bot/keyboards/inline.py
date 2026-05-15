@@ -2,7 +2,7 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.formatters import TYPE_EMOJI, locale_flag
-from services.ps_store import GameResult
+from services.ps_store import GameInfo
 
 
 def ps_regions_keyboard(
@@ -34,7 +34,7 @@ def user_regions_keyboard(regions: list) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def search_results_keyboard(games: list[GameResult]) -> InlineKeyboardMarkup:
+def search_results_keyboard(games: list[GameInfo]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for i, game in enumerate(games):
         emoji = TYPE_EMOJI.get(game.type, "🎮")

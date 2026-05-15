@@ -10,7 +10,7 @@ from bot.formatters import format_game_card, format_game_list
 from bot.keyboards.inline import search_results_keyboard
 from bot.states.subscription import SearchForm
 from services.currency import get_rates
-from services.ps_store import GameResult, RegionPrice, get_game_info, normalize_title, search_games
+from services.ps_store import GameInfo, RegionPrice, get_game_info, normalize_title, search_games
 from services.region import get_user_regions
 from services.user import get_or_create_user
 
@@ -52,19 +52,20 @@ async def _do_search(message: Message, state: FSMContext, session: AsyncSession,
 
     # Merge results across regions by normalized title
     by_title: dict[str, dict[str, RegionPrice]] = {}
-    rep_game: dict[str, GameResult] = {}
+    rep_game: dict[str, GameInfo] = {}
     ps_ids_by_title: dict[str, dict[str, str]] = {}
 
     for region, region_games in zip(user_regions, results):
-        for game in region_games:
+        for game, price in region_games:
             key = normalize_title(game.title)
-            by_title.setdefault(key, {})[region.code] = RegionPrice(
-                game.price, game.currency, game.base_price, game.discount_text, game.ps_id, game.discount_end
-            )
+            # Don't overwrite a paid price with a free/unavailable one
+            if price.price is not None or region.code not in by_title.get(key, {}):
+                by_title.setdefault(key, {})[region.code] = price
             # Prefer ASCII title so localized prefixes ("Набір", "세트" etc.) don't win
             if key not in rep_game or game.title.isascii():
                 rep_game[key] = game
-            ps_ids_by_title.setdefault(key, {})[region.code] = game.ps_id
+            if price.ps_id:
+                ps_ids_by_title.setdefault(key, {})[region.code] = price.ps_id
 
     # Trim to display limit before fallback to avoid unnecessary requests
     all_keys = list(rep_game)
@@ -86,29 +87,29 @@ async def _do_search(message: Message, state: FSMContext, session: AsyncSession,
             get_game_info(ps_id, region.code)
             for _, region, ps_id in fallback_tasks
         ])
-        for (title_key, region, ps_id), result in zip(fallback_tasks, fallback_results):
+        for (title_key, region, _), result in zip(fallback_tasks, fallback_results):
             if result is not None:
-                by_title[title_key][region.code] = RegionPrice(
-                    result.price, result.currency, result.base_price, result.discount_text, ps_id, result.discount_end
-                )
+                _, region_price = result
+                if region_price is not None:
+                    by_title[title_key][region.code] = region_price
 
     # Exclude games with no purchasable price in any of the user's regions (free games, demos, removed titles).
     all_keys = [k for k in all_keys if any(rp.price is not None for rp in by_title.get(k, {}).values())]
 
     all_games = [rep_game[k] for k in all_keys]
     games = all_games[:_MAX_SEARCH_RESULTS]
+    visible_keys = all_keys[:_MAX_SEARCH_RESULTS]
 
     entries = [
         {
             "game": rep_game[key].to_dict(),
             "prices": {r: rp.to_dict() for r, rp in by_title[key].items()},
         }
-        for key in all_keys[:_MAX_SEARCH_RESULTS]
+        for key in visible_keys
     ]
 
     await state.set_state(SearchForm.showing_results)
     await state.update_data(entries=entries, rates=rates)
-    prices_by_game = {rep_game[k].ps_id: by_title[k] for k in all_keys}
 
     hidden = len(all_games) - len(games)
     footer = "Want to track prices in more regions?\nAdd a new one: /add_region"
@@ -120,7 +121,7 @@ async def _do_search(message: Message, state: FSMContext, session: AsyncSession,
         title="Select a game to see details:",
         footer=footer,
         games=games,
-        prices_by_game=prices_by_game,
+        prices=[by_title[k] for k in visible_keys],
         rates=rates,
     )
     await message.answer(text, reply_markup=search_results_keyboard(games))
@@ -160,7 +161,7 @@ async def on_game_select(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     entry = entries[index]
-    game = GameResult.from_dict(entry["game"])
+    game = GameInfo.from_dict(entry["game"])
     prices = {region: RegionPrice.from_dict(v) for region, v in entry["prices"].items()}
 
     # endTime is not in search results — fetch it from one discounted region
@@ -172,11 +173,13 @@ async def on_game_select(callback: CallbackQuery, state: FSMContext) -> None:
             None,
         )
         if sample:
-            info = await get_game_info(sample[1].ps_id, sample[0])
-            if info and info.discount_end:
-                for rp in prices.values():
-                    if rp.base_price is not None:
-                        rp.discount_end = info.discount_end
+            result = await get_game_info(sample[1].ps_id, sample[0])
+            if result:
+                _, info_price = result
+                if info_price and info_price.discount_end:
+                    for rp in prices.values():
+                        if rp.base_price is not None:
+                            rp.discount_end = info_price.discount_end
 
     caption = format_game_card(
         game,

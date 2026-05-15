@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from services.currency import PS_CURRENCY_MAP, convert_to_usd
-from services.ps_store import GameResult, RegionPrice
+from services.ps_store import GameInfo, RegionPrice
 
 TYPE_EMOJI = {
     "FULL_GAME": "🎮",
@@ -74,7 +74,7 @@ def _price_line(
     return " · ".join(parts)
 
 
-def _game_header(game: GameResult) -> list[str]:
+def _game_header(game: GameInfo) -> list[str]:
     emoji = TYPE_EMOJI.get(game.type, "🎮")
     type_label = TYPE_LABEL.get(game.type, game.type) or "—"
     platforms = " · ".join(game.platforms) if game.platforms else "—"
@@ -130,19 +130,18 @@ def _card_price_lines(
 def format_game_list(
     title: str,
     footer: str,
-    games: list[GameResult],
-    prices_by_game: dict[str, dict[str, RegionPrice]],
+    games: list[GameInfo],
+    prices: list[dict[str, RegionPrice]],
     rates: dict[str, float] | None = None,
 ) -> str:
     if not games:
         return "Nothing found. Try a different query."
 
     cards = []
-    for game in games:
+    for game, game_prices in zip(games, prices):
         lines = _game_header(game)
-        prices = prices_by_game.get(game.ps_id, {})
-        if prices:
-            lines.append(_price_line(prices, rates))
+        if game_prices:
+            lines.append(_price_line(game_prices, rates))
         cards.append("\n".join(lines))
 
     return f"{title}\n\n" + "\n\n".join(cards) + f"\n\n{footer}"
@@ -165,7 +164,7 @@ def _offer_end_line(prices: dict[str, RegionPrice]) -> str | None:
 
 
 def format_game_card(
-    game: GameResult,
+    game: GameInfo,
     prices: dict[str, RegionPrice],
     rates: dict[str, float] | None = None,
     old_prices: dict[str, RegionPrice] | None = None,

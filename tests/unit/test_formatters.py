@@ -8,22 +8,17 @@ from bot.formatters import (
     format_game_list,
     locale_flag,
 )
-from services.ps_store import GameResult, RegionPrice
+from services.ps_store import GameInfo, RegionPrice
 
 RATES = {"EUR": 0.92, "INR": 84.0, "TRY": 45.0}
 
 PS_ID = "UP9000-PPSA03016_00-GAME"
 EP_ID = "EP9000-CUSA00001_00-GAME"
 
-GAME = GameResult(
-    ps_id=PS_ID,
+GAME = GameInfo(
     title="Test Game",
     platforms=["PS5"],
     type="FULL_GAME",
-    price=59.99,
-    currency="€",
-    base_price=None,
-    discount_text=None,
     cover_url=None,
 )
 
@@ -69,7 +64,7 @@ def test_game_header_full_game():
 
 
 def test_game_header_premium_edition():
-    game = GameResult(**{**GAME.__dict__, "type": "PREMIUM_EDITION", "platforms": ["PS4", "PS5"]})
+    game = GameInfo(**{**GAME.__dict__, "type": "PREMIUM_EDITION", "platforms": ["PS4", "PS5"]})
     lines = _game_header(game)
     assert lines[0].startswith("💎")
     assert "Premium Edition" in lines[1]
@@ -77,14 +72,14 @@ def test_game_header_premium_edition():
 
 
 def test_game_header_unknown_type():
-    game = GameResult(**{**GAME.__dict__, "type": "UNKNOWN_TYPE"})
+    game = GameInfo(**{**GAME.__dict__, "type": "UNKNOWN_TYPE"})
     lines = _game_header(game)
     assert lines[0].startswith("🎮")
     assert "UNKNOWN_TYPE" in lines[1]
 
 
 def test_game_header_no_platforms():
-    game = GameResult(**{**GAME.__dict__, "platforms": []})
+    game = GameInfo(**{**GAME.__dict__, "platforms": []})
     lines = _game_header(game)
     assert lines[1].startswith("—")
 
@@ -216,15 +211,14 @@ def test_format_game_list_empty():
 
 
 def test_format_game_list_structure():
-    prices = {PS_ID: {"en-us": RegionPrice(9.99, "$", None, None)}}
-    result = format_game_list("My Games", "The end", [GAME], prices, RATES)
+    result = format_game_list("My Games", "The end", [GAME], [{"en-us": RegionPrice(9.99, "$", None, None)}], RATES)
     assert result.startswith("My Games")
     assert result.endswith("The end")
     assert "Test Game" in result
 
 
 def test_format_game_list_no_prices():
-    result = format_game_list("Title", "Footer", [GAME], {}, RATES)
+    result = format_game_list("Title", "Footer", [GAME], [{}], RATES)
     assert "Test Game" in result
 
 

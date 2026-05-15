@@ -1,9 +1,4 @@
-def is_price_dropped(old_price: float, new_price: float) -> bool:
-    return new_price < old_price
-
-
-def price_drop_percent(old_price: float, new_price: float) -> int:
-    return round((old_price - new_price) / old_price * 100)
+from services.price import is_price_dropped, price_drop_percent
 
 
 def test_price_dropped():

@@ -72,34 +72,22 @@ class RegionPrice:
 
 
 @dataclass
-class GameResult:
-    ps_id: str
+class GameInfo:
     title: str
     platforms: list[str]
     type: str
-    price: float | None
-    currency: str | None
-    base_price: float | None
-    discount_text: str | None
     cover_url: str | None
-    discount_end: str | None = None
 
     def to_dict(self) -> dict:
         return {
-            "ps_id": self.ps_id,
             "title": self.title,
             "platforms": self.platforms,
             "type": self.type,
-            "price": self.price,
-            "currency": self.currency,
-            "base_price": self.base_price,
-            "discount_text": self.discount_text,
             "cover_url": self.cover_url,
-            "discount_end": self.discount_end,
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "GameResult":
+    def from_dict(cls, d: dict) -> "GameInfo":
         return cls(**d)
 
 
@@ -147,13 +135,29 @@ def _canonical_currency(currency: str | None) -> str | None:
     return iso if iso is not None else currency
 
 
+_NO_PRICE_STRINGS = {"Free", "Unavailable"}
+
+
 def _parse_str_price_data(price_data: dict) -> tuple[float | None, str | None, float | None, str | None]:
     """Parse string-format price data from search results → (price, currency, base_price, discount_text)."""
     discounted_str = price_data.get("discountedPrice")
     base_str = price_data.get("basePrice")
+    is_free = price_data.get("isFree", False)
 
-    price, currency = _parse_price(discounted_str) if discounted_str and discounted_str != "Free" else (None, None)
-    base_price, base_currency = _parse_price(base_str) if base_str and base_str != "Free" else (None, None)
+    # "Free" in discountedPrice with isFree=False means free trial — use basePrice as the real price.
+    if is_free and discounted_str == "Free" and (not base_str or base_str == "Free"):
+        return None, None, None, None
+
+    price, currency = (
+        _parse_price(discounted_str)
+        if discounted_str and discounted_str not in _NO_PRICE_STRINGS
+        else (None, None)
+    )
+    base_price, base_currency = (
+        _parse_price(base_str)
+        if base_str and base_str not in _NO_PRICE_STRINGS
+        else (None, None)
+    )
 
     if price is None:
         return base_price, _canonical_currency(base_currency), None, price_data.get("discountText")
@@ -189,19 +193,29 @@ def _parse_end_time(value: int | str | None) -> str | None:
     return None
 
 
-def _make_game_result(product: dict, price: float | None, currency: str | None,
-                      base_price: float | None, discount_text: str | None,
-                      discount_end: str | None = None) -> GameResult:
-    return GameResult(
-        ps_id=product["id"],
+def _make_game_info(product: dict) -> GameInfo:
+    return GameInfo(
         title=product.get("name", ""),
         platforms=product.get("platforms") or [],
         type=product.get("storeDisplayClassification"),
+        cover_url=_extract_cover(product.get("media") or []),
+    )
+
+
+def _make_region_price(
+    price: float | None,
+    currency: str | None,
+    base_price: float | None,
+    discount_text: str | None,
+    ps_id: str | None = None,
+    discount_end: str | None = None,
+) -> RegionPrice:
+    return RegionPrice(
         price=price,
         currency=currency,
         base_price=base_price,
         discount_text=discount_text,
-        cover_url=_extract_cover(product.get("media") or []),
+        ps_id=ps_id,
         discount_end=discount_end,
     )
 
@@ -231,7 +245,7 @@ def _outright_price(webctas: list[dict]) -> dict | None:
     return None
 
 
-async def search_games(query: str, region: str = "en-us") -> list[GameResult]:
+async def search_games(query: str, region: str = "en-us") -> list[tuple[GameInfo, RegionPrice]]:
     _, _, country = region.partition("-")
     params = urlencode({
         "operationName": "getSearchResults",
@@ -261,7 +275,7 @@ async def search_games(query: str, region: str = "en-us") -> list[GameResult]:
         logger.warning("search_games: no universalSearch data [query=%r region=%s]", query, region)
         return []
 
-    results: list[GameResult] = []
+    results: list[tuple[GameInfo, RegionPrice]] = []
     for product in page.get("results", []):
         if product.get("storeDisplayClassification") not in GAME_TYPES:
             continue
@@ -269,14 +283,23 @@ async def search_games(query: str, region: str = "en-us") -> list[GameResult]:
             continue
         price_data = product.get("price") or {}
         price, currency, base_price, discount_text = _parse_str_price_data(price_data)
+        discounted = price_data.get("discountedPrice")
+        if price is None and not price_data.get("isFree") and discounted not in _NO_PRICE_STRINGS:
+            logger.warning(
+                "search_games: no price parsed [ps_id=%s region=%s raw=%r]",
+                product["id"], region, price_data,
+            )
         discount_end = _parse_end_time(price_data.get("endTime"))
-        results.append(_make_game_result(product, price, currency, base_price, discount_text, discount_end))
+        results.append((
+            _make_game_info(product),
+            _make_region_price(price, currency, base_price, discount_text, product["id"], discount_end),
+        ))
 
     logger.info("search_games: %d results [query=%r region=%s]", len(results), query, region)
     return results
 
 
-async def get_game_info(ps_id: str, region: str = "en-us") -> GameResult | None:
+async def get_game_info(ps_id: str, region: str = "en-us") -> tuple[GameInfo, RegionPrice | None] | None:
     params = urlencode({
         "operationName": "productRetrieveForUpsellWithCtas",
         "variables": json.dumps({"productId": ps_id}),
@@ -305,8 +328,14 @@ async def get_game_info(ps_id: str, region: str = "en-us") -> GameResult | None:
         logger.warning("get_game_info: product not in concept.products [ps_id=%s region=%s]", ps_id, region)
         return None
 
-    price, currency, base_price, discount_text, discount_end = None, None, None, None, None
-    price_cta = _outright_price(product.get("webctas") or [])
+    region_price: RegionPrice | None = None
+    webctas = product.get("webctas") or []
+    price_cta = _outright_price(webctas)
+    if price_cta is None:
+        logger.warning(
+            "get_game_info: no purchasable CTA [ps_id=%s region=%s webctas=%r]",
+            ps_id, region, webctas,
+        )
     if price_cta and not price_cta.get("isFree"):
         iso = price_cta.get("currencyCode")
         divisor = 1 if iso in _WHOLE_UNIT_CURRENCIES else 100
@@ -314,14 +343,22 @@ async def get_game_info(ps_id: str, region: str = "en-us") -> GameResult | None:
         bv = price_cta.get("basePriceValue")
         price = (dv if dv is not None else bv or 0) / divisor or None
         base_price = bv / divisor if bv is not None and bv != dv else None
-        currency = PS_ISO_TO_SYMBOL.get(iso, iso)
-        discount_text = price_cta.get("discountText")
-        discount_end = _parse_end_time(price_cta.get("endTime"))
+        region_price = _make_region_price(
+            price=price,
+            currency=PS_ISO_TO_SYMBOL.get(iso, iso),
+            base_price=base_price,
+            discount_text=price_cta.get("discountText"),
+            ps_id=ps_id,
+            discount_end=_parse_end_time(price_cta.get("endTime")),
+        )
 
     logger.info("get_game_info: found %r [ps_id=%s region=%s]", product.get("name"), ps_id, region)
-    return _make_game_result(product, price, currency, base_price, discount_text, discount_end)
+    return _make_game_info(product), region_price
 
 
 async def get_game_price(ps_id: str, region: str = "en-us") -> float | None:
     result = await get_game_info(ps_id, region)
-    return result.price if result else None
+    if result is None:
+        return None
+    _, region_price = result
+    return region_price.price if region_price else None
