@@ -2,6 +2,7 @@ from bot.formatters import (
     _card_price_lines,
     _format_price,
     _game_header,
+    _offer_end_line,
     _price_line,
     format_game_card,
     format_game_list,
@@ -249,3 +250,52 @@ def test_format_game_card_with_old_prices():
     result = format_game_card(GAME, prices, RATES, old_prices=old)
     assert "↓" in result
     assert "<s>" in result
+
+
+# --- _offer_end_line ---
+
+def test_offer_end_line_shown_when_discounted():
+    prices = {"en-us": RegionPrice(19.99, "$", 39.99, "-50%", discount_end="2026-05-22 22:59")}
+    line = _offer_end_line(prices)
+    assert line == "22/5/2026 22:59 UTC"
+
+
+def test_offer_end_line_date_only_fallback():
+    prices = {"en-us": RegionPrice(19.99, "$", 39.99, "-50%", discount_end="2026-05-22")}
+    line = _offer_end_line(prices)
+    assert line == "22/5/2026 UTC"
+
+
+def test_offer_end_line_none_when_no_discount():
+    prices = {"en-us": RegionPrice(39.99, "$", None, None, discount_end="2026-05-22 22:59")}
+    line = _offer_end_line(prices)
+    assert line is None
+
+
+def test_offer_end_line_none_when_no_end_date():
+    prices = {"en-us": RegionPrice(19.99, "$", 39.99, "-50%", discount_end=None)}
+    line = _offer_end_line(prices)
+    assert line is None
+
+
+def test_offer_end_takes_first_discounted_region():
+    prices = {
+        "en-us": RegionPrice(19.99, "$", None, None, discount_end="2026-05-22 22:59"),
+        "en-gb": RegionPrice(14.99, "£", 29.99, "-50%", discount_end="2026-05-30 22:59"),
+    }
+    line = _offer_end_line(prices)
+    assert line == "30/5/2026 22:59 UTC"
+
+
+def test_format_game_card_shows_offer_end():
+    prices = {"en-us": RegionPrice(19.99, "$", 39.99, "-50%", discount_end="2026-05-22 22:59")}
+    result = format_game_card(GAME, prices, RATES)
+    assert "Offer ends:" in result
+    assert "22/5/2026 22:59 UTC" in result
+    assert "<b>" in result
+
+
+def test_format_game_card_no_offer_end_without_discount():
+    prices = {"en-us": RegionPrice(39.99, "$", None, None)}
+    result = format_game_card(GAME, prices, RATES)
+    assert "Offer ends" not in result

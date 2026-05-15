@@ -59,7 +59,7 @@ async def _do_search(message: Message, state: FSMContext, session: AsyncSession,
         for game in region_games:
             key = normalize_title(game.title)
             by_title.setdefault(key, {})[region.code] = RegionPrice(
-                game.price, game.currency, game.base_price, game.discount_text, game.ps_id
+                game.price, game.currency, game.base_price, game.discount_text, game.ps_id, game.discount_end
             )
             # Prefer ASCII title so localized prefixes ("Набір", "세트" etc.) don't win
             if key not in rep_game or game.title.isascii():
@@ -89,7 +89,7 @@ async def _do_search(message: Message, state: FSMContext, session: AsyncSession,
         for (title_key, region, ps_id), result in zip(fallback_tasks, fallback_results):
             if result is not None:
                 by_title[title_key][region.code] = RegionPrice(
-                    result.price, result.currency, result.base_price, result.discount_text, ps_id
+                    result.price, result.currency, result.base_price, result.discount_text, ps_id, result.discount_end
                 )
 
     # Exclude games with no purchasable price in any of the user's regions (free games, demos, removed titles).
@@ -162,6 +162,21 @@ async def on_game_select(callback: CallbackQuery, state: FSMContext) -> None:
     entry = entries[index]
     game = GameResult.from_dict(entry["game"])
     prices = {region: RegionPrice.from_dict(v) for region, v in entry["prices"].items()}
+
+    # endTime is not in search results — fetch it from one discounted region
+    has_discount = any(rp.base_price is not None for rp in prices.values())
+    has_end = any(rp.discount_end is not None for rp in prices.values())
+    if has_discount and not has_end:
+        sample = next(
+            ((locale, rp) for locale, rp in prices.items() if rp.base_price is not None and rp.ps_id),
+            None,
+        )
+        if sample:
+            info = await get_game_info(sample[1].ps_id, sample[0])
+            if info and info.discount_end:
+                for rp in prices.values():
+                    if rp.base_price is not None:
+                        rp.discount_end = info.discount_end
 
     caption = format_game_card(
         game,

@@ -54,6 +54,7 @@ class RegionPrice:
     base_price: float | None
     discount_text: str | None
     ps_id: str | None = None
+    discount_end: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -62,6 +63,7 @@ class RegionPrice:
             "base_price": self.base_price,
             "discount_text": self.discount_text,
             "ps_id": self.ps_id,
+            "discount_end": self.discount_end,
         }
 
     @classmethod
@@ -80,6 +82,7 @@ class GameResult:
     base_price: float | None
     discount_text: str | None
     cover_url: str | None
+    discount_end: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -92,6 +95,7 @@ class GameResult:
             "base_price": self.base_price,
             "discount_text": self.discount_text,
             "cover_url": self.cover_url,
+            "discount_end": self.discount_end,
         }
 
     @classmethod
@@ -168,8 +172,26 @@ def _extract_cover(media: list[dict]) -> str | None:
     return None
 
 
+def _parse_end_time(value: int | str | None) -> str | None:
+    """Parse PS Store endTime (Unix ms as int or numeric string) → 'YYYY-MM-DD HH:MM' (UTC)."""
+    if value is None:
+        return None
+    try:
+        from datetime import datetime, timezone
+        ms = int(value) if isinstance(value, str) and value.isdigit() else value
+        if isinstance(ms, (int, float)):
+            ts = ms / 1000 if ms > 1e10 else ms
+            return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+        if isinstance(value, str) and len(value) >= 10:
+            return value[:16]
+    except Exception:
+        pass
+    return None
+
+
 def _make_game_result(product: dict, price: float | None, currency: str | None,
-                      base_price: float | None, discount_text: str | None) -> GameResult:
+                      base_price: float | None, discount_text: str | None,
+                      discount_end: str | None = None) -> GameResult:
     return GameResult(
         ps_id=product["id"],
         title=product.get("name", ""),
@@ -180,6 +202,7 @@ def _make_game_result(product: dict, price: float | None, currency: str | None,
         base_price=base_price,
         discount_text=discount_text,
         cover_url=_extract_cover(product.get("media") or []),
+        discount_end=discount_end,
     )
 
 
@@ -244,8 +267,10 @@ async def search_games(query: str, region: str = "en-us") -> list[GameResult]:
             continue
         if not all(w in product.get("name", "").lower() for w in words):
             continue
-        price, currency, base_price, discount_text = _parse_str_price_data(product.get("price") or {})
-        results.append(_make_game_result(product, price, currency, base_price, discount_text))
+        price_data = product.get("price") or {}
+        price, currency, base_price, discount_text = _parse_str_price_data(price_data)
+        discount_end = _parse_end_time(price_data.get("endTime"))
+        results.append(_make_game_result(product, price, currency, base_price, discount_text, discount_end))
 
     logger.info("search_games: %d results [query=%r region=%s]", len(results), query, region)
     return results
@@ -280,7 +305,7 @@ async def get_game_info(ps_id: str, region: str = "en-us") -> GameResult | None:
         logger.warning("get_game_info: product not in concept.products [ps_id=%s region=%s]", ps_id, region)
         return None
 
-    price, currency, base_price, discount_text = None, None, None, None
+    price, currency, base_price, discount_text, discount_end = None, None, None, None, None
     price_cta = _outright_price(product.get("webctas") or [])
     if price_cta and not price_cta.get("isFree"):
         iso = price_cta.get("currencyCode")
@@ -291,9 +316,10 @@ async def get_game_info(ps_id: str, region: str = "en-us") -> GameResult | None:
         base_price = bv / divisor if bv is not None and bv != dv else None
         currency = PS_ISO_TO_SYMBOL.get(iso, iso)
         discount_text = price_cta.get("discountText")
+        discount_end = _parse_end_time(price_cta.get("endTime"))
 
     logger.info("get_game_info: found %r [ps_id=%s region=%s]", product.get("name"), ps_id, region)
-    return _make_game_result(product, price, currency, base_price, discount_text)
+    return _make_game_result(product, price, currency, base_price, discount_text, discount_end)
 
 
 async def get_game_price(ps_id: str, region: str = "en-us") -> float | None:

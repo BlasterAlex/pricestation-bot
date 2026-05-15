@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from services.currency import PS_CURRENCY_MAP, convert_to_usd
 from services.ps_store import GameResult, RegionPrice
 
@@ -146,6 +148,22 @@ def format_game_list(
     return f"{title}\n\n" + "\n\n".join(cards) + f"\n\n{footer}"
 
 
+def _offer_end_line(prices: dict[str, RegionPrice]) -> str | None:
+    for rp in prices.values():
+        if rp.discount_end and rp.base_price is not None:
+            try:
+                d = datetime.strptime(rp.discount_end, "%Y-%m-%d %H:%M")
+                return f"{d.day}/{d.month}/{d.year} {d.strftime('%H:%M')} UTC"
+            except ValueError:
+                pass
+            try:
+                d = datetime.strptime(rp.discount_end, "%Y-%m-%d")
+                return f"{d.day}/{d.month}/{d.year} UTC"
+            except (ValueError, AttributeError):
+                return f"{rp.discount_end}"
+    return None
+
+
 def format_game_card(
     game: GameResult,
     prices: dict[str, RegionPrice],
@@ -158,6 +176,9 @@ def format_game_card(
     if prices:
         lines.append("\nPrices by region:")
         lines.extend(_card_price_lines(prices, rates, old_prices))
+        offer_end = _offer_end_line(prices)
+        if offer_end:
+            lines.append(f"\nOffer ends:\n<b>{offer_end}</b>")
     body = "\n".join(lines)
     parts = [p for p in (title, body, footer) if p]
     return "\n\n".join(parts)
