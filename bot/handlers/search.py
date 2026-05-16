@@ -161,6 +161,8 @@ async def on_game_select(callback: CallbackQuery, state: FSMContext, session: As
                     for rp in prices.values():
                         if rp.base_price is not None:
                             rp.discount_end = info_price.discount_end
+                    entries[index]["prices"] = {r: rp.to_dict() for r, rp in prices.items()}
+                    await state.update_data(entries=entries)
 
     caption = format_game_card(
         game,
