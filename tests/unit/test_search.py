@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from bot.handlers.search import _do_search
+from bot.handlers.search import _do_search, on_game_select
 from services.ps_store import GameInfo, RegionPrice, best_ps_id
 
 UP_ID = "UP9000-PPSA03016_00-GAME"
@@ -221,3 +221,80 @@ async def test_fallback_result_merged_into_prices(mocker, common_mocks):
     assert prices["de-de"]["price"] == 39.99
 
 
+# --- on_game_select: discount_end persistence ---
+
+def _make_callback(index: int, user_id: int = 1) -> AsyncMock:
+    cb = AsyncMock()
+    cb.data = f"game_select:{index}"
+    cb.from_user = MagicMock(id=user_id)
+    cb.message = AsyncMock()
+    return cb
+
+
+def _make_entry(ps_id: str, base_price: float | None = None, discount_end: str | None = None) -> dict:
+    game = GameInfo(title="Test Game", platforms=["PS5"], type="FULL_GAME", cover_url=None)
+    rp = RegionPrice(price=29.99, currency="€", base_price=base_price,
+                     discount_text="-40%" if base_price else None, ps_id=ps_id, discount_end=discount_end)
+    return {"game": game.to_dict(), "prices": {"en-gb": rp.to_dict()}}
+
+
+@pytest.fixture
+def select_mocks(mocker):
+    mocker.patch("bot.handlers.search.is_subscribed", new_callable=AsyncMock, return_value=False)
+    mocker.patch("bot.handlers.search.format_game_card", return_value="caption")
+    mocker.patch("bot.handlers.search.game_card_keyboard", return_value=MagicMock())
+
+
+@pytest.mark.asyncio
+async def test_on_game_select_saves_discount_end_to_state(mocker, select_mocks):
+    """discount_end fetched via get_game_info must be written back into FSM state entries."""
+    entry = _make_entry(EP_ID, base_price=49.99)
+    assert entry["prices"]["en-gb"]["discount_end"] is None
+
+    state = AsyncMock()
+    captured = {}
+    state.get_data = AsyncMock(return_value={"entries": [entry], "rates": {}})
+    state.update_data = AsyncMock(side_effect=lambda **kw: captured.update(kw))
+
+    info_rp = RegionPrice(price=29.99, currency="€", base_price=49.99,
+                          discount_text="-40%", ps_id=EP_ID, discount_end="2025-06-01 23:59")
+    mocker.patch("bot.handlers.search.get_game_info",
+                 new_callable=AsyncMock, return_value=(MagicMock(), info_rp))
+
+    await on_game_select(_make_callback(0), state, AsyncMock())
+
+    assert "entries" in captured
+    assert captured["entries"][0]["prices"]["en-gb"]["discount_end"] == "2025-06-01 23:59"
+
+
+@pytest.mark.asyncio
+async def test_on_game_select_skips_state_update_when_no_discount_end(mocker, select_mocks):
+    """If get_game_info returns no discount_end, state must not be updated."""
+    entry = _make_entry(EP_ID, base_price=49.99)
+
+    state = AsyncMock()
+    state.get_data = AsyncMock(return_value={"entries": [entry], "rates": {}})
+
+    info_rp = RegionPrice(price=29.99, currency="€", base_price=49.99,
+                          discount_text="-40%", ps_id=EP_ID, discount_end=None)
+    mocker.patch("bot.handlers.search.get_game_info",
+                 new_callable=AsyncMock, return_value=(MagicMock(), info_rp))
+
+    await on_game_select(_make_callback(0), state, AsyncMock())
+
+    state.update_data.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_on_game_select_skips_fetch_when_no_discount(mocker, select_mocks):
+    """Game has no discount → get_game_info must not be called."""
+    entry = _make_entry(EP_ID, base_price=None)
+
+    state = AsyncMock()
+    state.get_data = AsyncMock(return_value={"entries": [entry], "rates": {}})
+
+    mock_get = mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock)
+
+    await on_game_select(_make_callback(0), state, AsyncMock())
+
+    mock_get.assert_not_called()
