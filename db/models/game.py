@@ -1,5 +1,7 @@
 
-from sqlalchemy import Index, String, Text
+from datetime import datetime
+
+from sqlalchemy import DateTime, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,6 +18,7 @@ class Game(Base):
     cover_url: Mapped[str | None] = mapped_column(Text)
     game_type: Mapped[str | None] = mapped_column(String(64))
     platforms: Mapped[list[str] | None] = mapped_column(ARRAY(String))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     subscriptions: Mapped[list["Subscription"]] = relationship(back_populates="game")
     game_regions: Mapped[list["GameRegion"]] = relationship(back_populates="game")

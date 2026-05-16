@@ -1,3 +1,5 @@
+import dataclasses
+
 from bot.formatters import (
     _card_price_lines,
     _format_price,
@@ -64,7 +66,7 @@ def test_game_header_full_game():
 
 
 def test_game_header_premium_edition():
-    game = GameInfo(**{**GAME.__dict__, "type": "PREMIUM_EDITION", "platforms": ["PS4", "PS5"]})
+    game = dataclasses.replace(GAME, type="PREMIUM_EDITION", platforms=["PS4", "PS5"])
     lines = _game_header(game)
     assert lines[0].startswith("💎")
     assert "Premium Edition" in lines[1]
@@ -72,14 +74,14 @@ def test_game_header_premium_edition():
 
 
 def test_game_header_unknown_type():
-    game = GameInfo(**{**GAME.__dict__, "type": "UNKNOWN_TYPE"})
+    game = dataclasses.replace(GAME, type="UNKNOWN_TYPE")
     lines = _game_header(game)
     assert lines[0].startswith("🎮")
     assert "UNKNOWN_TYPE" in lines[1]
 
 
 def test_game_header_no_platforms():
-    game = GameInfo(**{**GAME.__dict__, "platforms": []})
+    game = dataclasses.replace(GAME, platforms=[])
     lines = _game_header(game)
     assert lines[1].startswith("—")
 

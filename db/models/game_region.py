@@ -1,7 +1,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import Base
@@ -21,6 +21,7 @@ class GameRegion(Base):
     discount_text: Mapped[str | None] = mapped_column(Text)
     discount_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_checked: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     game: Mapped["Game"] = relationship(back_populates="game_regions")
     region: Mapped["Region"] = relationship(back_populates="game_regions")

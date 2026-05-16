@@ -1,50 +1,50 @@
 import pytest
 
-from services.ps_store import GameInfo, RegionPrice, get_game_info, normalize_title, search_games
+from services.ps_store import GameInfo, RegionPrice, get_game_info, search_games
 
 # --- normalize_title ---
 
 def test_normalize_title_lowercase():
-    assert normalize_title("FINAL FANTASY") == "finalfantasy"
+    assert GameInfo.normalize_title("FINAL FANTASY") == "finalfantasy"
 
 def test_normalize_title_trademark():
-    assert normalize_title("The Last of Us™") == normalize_title("The Last of Us")
+    assert GameInfo.normalize_title("The Last of Us™") == GameInfo.normalize_title("The Last of Us")
 
 def test_normalize_title_registered():
-    assert normalize_title("FINAL FANTASY® VII") == normalize_title("FINAL FANTASY VII")
+    assert GameInfo.normalize_title("FINAL FANTASY® VII") == GameInfo.normalize_title("FINAL FANTASY VII")
 
 def test_normalize_title_colon_parentheses():
-    assert normalize_title("God of War: Ragnarök") == normalize_title("God of War Ragnarök")
+    assert GameInfo.normalize_title("God of War: Ragnarök") == GameInfo.normalize_title("God of War Ragnarök")
 
 def test_normalize_title_standalone_vs_stand_alone():
-    assert normalize_title("Left Behind (Standalone)") == normalize_title("Left Behind Stand Alone")
+    assert GameInfo.normalize_title("Left Behind (Standalone)") == GameInfo.normalize_title("Left Behind Stand Alone")
 
 def test_normalize_title_strips_korean_suffix():
     assert (
-        normalize_title("FINAL FANTASY XV ROYAL EDITION (중국어, 한국어)")
-        == normalize_title("FINAL FANTASY XV ROYAL EDITION")
+        GameInfo.normalize_title("FINAL FANTASY XV ROYAL EDITION (중국어, 한국어)")
+        == GameInfo.normalize_title("FINAL FANTASY XV ROYAL EDITION")
     )
 
 def test_normalize_title_strips_japanese_chars():
     assert (
-        normalize_title("FINAL FANTASY VII リメイク")
-        == normalize_title("FINAL FANTASY VII")
+        GameInfo.normalize_title("FINAL FANTASY VII リメイク")
+        == GameInfo.normalize_title("FINAL FANTASY VII")
     )
 
 def test_normalize_title_strips_cyrillic_prefix():
     assert (
-        normalize_title("Набір FINAL FANTASY VII REMAKE & REBIRTH Twin Pack")
-        == normalize_title("FINAL FANTASY VII REMAKE & REBIRTH Twin Pack")
+        GameInfo.normalize_title("Набір FINAL FANTASY VII REMAKE & REBIRTH Twin Pack")
+        == GameInfo.normalize_title("FINAL FANTASY VII REMAKE & REBIRTH Twin Pack")
     )
 
 def test_normalize_title_collapses_spaces():
-    assert normalize_title("God  of   War") == normalize_title("God of War")
+    assert GameInfo.normalize_title("God  of   War") == GameInfo.normalize_title("God of War")
 
 def test_normalize_title_preserves_numbers():
-    assert normalize_title("FIFA 23") == "fifa23"
+    assert GameInfo.normalize_title("FIFA 23") == "fifa23"
 
 def test_normalize_title_numbers_across_regions():
-    assert normalize_title("FIFA 23 (중국어, 한국어)") == normalize_title("FIFA 23")
+    assert GameInfo.normalize_title("FIFA 23 (중국어, 한국어)") == GameInfo.normalize_title("FIFA 23")
 
 
 # --- fixtures ---
@@ -183,7 +183,7 @@ async def test_search_no_cover_url(mock_store):
 
 
 @pytest.mark.asyncio
-async def test_search_free_price_is_none(make_mock_store):
+async def test_search_free_game_excluded(make_mock_store):
     make_mock_store({"data": {"universalSearch": {"results": [
         {
             "__typename": "Product",
@@ -197,9 +197,7 @@ async def test_search_free_price_is_none(make_mock_store):
     ]}}})
 
     results = await search_games("spider man")
-    _, price = results[0]
-    assert price.price is None
-    assert price.currency is None
+    assert results == []
 
 
 @pytest.mark.asyncio
@@ -314,6 +312,29 @@ async def test_get_game_info_cover_url(mock_game_info):
 async def test_get_game_info_not_found_returns_none(make_mock_store):
     make_mock_store({"data": {"productRetrieve": None}})
     result = await get_game_info(GAME_INFO_PS_ID)
+    assert result is None
+
+
+def test_game_info_normalized_title_auto_computed():
+    game = GameInfo(title="God of War: Ragnarök™", platforms=["PS5"], type="FULL_GAME", cover_url=None)
+    assert game.normalized_title == GameInfo.normalize_title("God of War: Ragnarök™")
+    assert game.normalized_title == "godofwarragnark"
+
+
+@pytest.mark.asyncio
+async def test_get_game_info_unavailable_returns_none_price(make_mock_store):
+    ps_id = "EP0001-PPSA00001_00-REGIONLOCKED"
+    make_mock_store({"data": {"productRetrieve": {"concept": {"products": [{
+        "id": ps_id,
+        "name": "Region Locked Game",
+        "platforms": ["PS5"],
+        "storeDisplayClassification": "FULL_GAME",
+        "media": [],
+        "webctas": [{"type": "UNAVAILABLE", "meta": None, "price": None}],
+    }]}}}})
+
+    result = await get_game_info(ps_id, "en-us")
+
     assert result is None
 
 

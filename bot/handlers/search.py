@@ -7,26 +7,13 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.formatters import format_game_card, format_game_list
-from bot.keyboards.inline import search_results_keyboard
+from bot.keyboards.inline import game_card_keyboard, search_results_keyboard
 from bot.states.subscription import SearchForm
 from services.currency import get_rates
-from services.ps_store import GameInfo, RegionPrice, get_game_info, normalize_title, search_games
+from services.ps_store import GameInfo, RegionPrice, best_ps_id, get_game_info, search_games
 from services.region import get_user_regions
+from services.subscription import is_subscribed
 from services.user import get_or_create_user
-
-# PS Store product ID prefixes by region group
-_COUNTRY_TO_PS_PREFIX: dict[str, str] = {
-    "us": "UP", "ca": "UP", "mx": "UP", "br": "UP", "ar": "UP", "cl": "UP", "co": "UP",
-    "jp": "JP",
-    "kr": "KP",
-}
-
-
-def _best_ps_id(region_code: str, ps_ids: dict[str, str]) -> str | None:
-    country = region_code.split("-")[-1].lower()
-    preferred = _COUNTRY_TO_PS_PREFIX.get(country, "EP")
-    return next((pid for pid in ps_ids.values() if pid.startswith(preferred)), None)
-
 
 _MAX_SEARCH_RESULTS = 15
 
@@ -57,10 +44,8 @@ async def _do_search(message: Message, state: FSMContext, session: AsyncSession,
 
     for region, region_games in zip(user_regions, results):
         for game, price in region_games:
-            key = normalize_title(game.title)
-            # Don't overwrite a paid price with a free/unavailable one
-            if price.price is not None or region.code not in by_title.get(key, {}):
-                by_title.setdefault(key, {})[region.code] = price
+            key = game.normalized_title
+            by_title.setdefault(key, {})[region.code] = price
             # Prefer ASCII title so localized prefixes ("Набір", "세트" etc.) don't win
             if key not in rep_game or game.title.isascii():
                 rep_game[key] = game
@@ -78,7 +63,7 @@ async def _do_search(message: Message, state: FSMContext, session: AsyncSession,
             continue
         for region in user_regions:
             if region.code not in found:
-                best = _best_ps_id(region.code, ps_ids_by_title[title_key])
+                best = best_ps_id(region.code, ps_ids_by_title[title_key])
                 if best:
                     fallback_tasks.append((title_key, region, best))
 
@@ -90,11 +75,7 @@ async def _do_search(message: Message, state: FSMContext, session: AsyncSession,
         for (title_key, region, _), result in zip(fallback_tasks, fallback_results):
             if result is not None:
                 _, region_price = result
-                if region_price is not None:
-                    by_title[title_key][region.code] = region_price
-
-    # Exclude games with no purchasable price in any of the user's regions (free games, demos, removed titles).
-    all_keys = [k for k in all_keys if any(rp.price is not None for rp in by_title.get(k, {}).values())]
+                by_title[title_key][region.code] = region_price
 
     all_games = [rep_game[k] for k in all_keys]
     games = all_games[:_MAX_SEARCH_RESULTS]
@@ -148,7 +129,7 @@ async def on_search_query(
 
 
 @router.callback_query(F.data.startswith("game_select:"))
-async def on_game_select(callback: CallbackQuery, state: FSMContext) -> None:
+async def on_game_select(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await callback.answer()
 
     data = await state.get_data()
@@ -187,8 +168,10 @@ async def on_game_select(callback: CallbackQuery, state: FSMContext) -> None:
         rates,
         footer="Want to track prices in more regions?\nAdd a new one: /add_region",
     )
+    subscribed = await is_subscribed(session, callback.from_user.id, game.normalized_title)
+    keyboard = game_card_keyboard(index, is_subscribed=subscribed)
 
     if game.cover_url:
-        await callback.message.answer_photo(photo=game.cover_url, caption=caption)
+        await callback.message.answer_photo(photo=game.cover_url, caption=caption, reply_markup=keyboard)
     else:
-        await callback.message.answer(caption)
+        await callback.message.answer(caption, reply_markup=keyboard)

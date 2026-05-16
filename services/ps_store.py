@@ -1,7 +1,7 @@
 ﻿import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
 import aiohttp
@@ -38,15 +38,6 @@ _GQL_SEARCH_PAGE_SIZE = 50
 _WARN_STATUSES = {403, 404, 410, 429}
 
 
-# Removes punctuation, trademark symbols, non-ASCII characters (Cyrillic, CJK,
-# locale prefixes like "Набір", etc.), and whitespace so that titles collapse
-# to the same key regardless of regional language prefix.
-def normalize_title(title: str) -> str:
-    t = re.sub(r"[™®©:().,'\"!?\-/]", "", title.lower())
-    t = re.sub(r"[^\x00-\x7f]", "", t)
-    return re.sub(r"\s+", "", t)
-
-
 @dataclass
 class RegionPrice:
     price: float | None
@@ -77,6 +68,19 @@ class GameInfo:
     platforms: list[str]
     type: str
     cover_url: str | None
+    normalized_title: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.normalized_title = GameInfo.normalize_title(self.title)
+
+    @staticmethod
+    def normalize_title(title: str) -> str:
+        # Removes punctuation, trademark symbols, non-ASCII characters (Cyrillic, CJK,
+        # locale prefixes like "Набір", etc.), and whitespace so that titles collapse
+        # to the same key regardless of regional language prefix.
+        t = re.sub(r"[™®©:().,'\"!?\-/]", "", title.lower())
+        t = re.sub(r"[^\x00-\x7f]", "", t)
+        return re.sub(r"\s+", "", t)
 
     def to_dict(self) -> dict:
         return {
@@ -235,6 +239,22 @@ def _gql_headers(region: str, referer: str) -> dict:
     }
 
 
+_COUNTRY_TO_PS_PREFIX: dict[str, str] = {
+    "us": "UP", "ca": "UP", "mx": "UP", "br": "UP", "ar": "UP", "cl": "UP", "co": "UP",
+    "jp": "JP",
+    "kr": "KP",
+}
+
+
+def best_ps_id(region_code: str, ps_ids: dict[str, str]) -> str | None:
+    """Pick the ps_id most likely to work for region_code based on product ID prefix."""
+    country = region_code.split("-")[-1].lower()
+    preferred = _COUNTRY_TO_PS_PREFIX.get(country, "EP")
+    return next((pid for pid in ps_ids.values() if pid.startswith(preferred)), None)
+
+
+# Returns the price dict for the first outright purchase CTA, or None if the game
+# is unavailable in the region (UNAVAILABLE type) or only free/PS Plus options exist.
 def _outright_price(webctas: list[dict]) -> dict | None:
     for cta in webctas:
         if cta.get("type") == "ADD_TO_CART":
@@ -245,14 +265,19 @@ def _outright_price(webctas: list[dict]) -> dict | None:
     return None
 
 
-async def search_games(query: str, region: str = "en-us") -> list[tuple[GameInfo, RegionPrice]]:
+# Searches PS Store by text query and returns purchasable games with their prices.
+# Free games (price=None after parsing) are excluded from results.
+# page_size controls how many PS Store results are fetched; default is 50.
+async def search_games(
+    query: str, region: str = "en-us", page_size: int = _GQL_SEARCH_PAGE_SIZE
+) -> list[tuple[GameInfo, RegionPrice]]:
     _, _, country = region.partition("-")
     params = urlencode({
         "operationName": "getSearchResults",
         "variables": json.dumps({
             "countryCode": country.upper() if country else region.upper(),
             "languageCode": "en",
-            "pageSize": _GQL_SEARCH_PAGE_SIZE,
+            "pageSize": page_size,
             "searchTerm": query,
             "nextCursor": "",
             "pageOffset": 0,
@@ -283,12 +308,13 @@ async def search_games(query: str, region: str = "en-us") -> list[tuple[GameInfo
             continue
         price_data = product.get("price") or {}
         price, currency, base_price, discount_text = _parse_str_price_data(price_data)
-        discounted = price_data.get("discountedPrice")
-        if price is None and not price_data.get("isFree") and discounted not in _NO_PRICE_STRINGS:
-            logger.warning(
-                "search_games: no price parsed [ps_id=%s region=%s raw=%r]",
-                product["id"], region, price_data,
-            )
+        if price is None:
+            if not price_data.get("isFree") and price_data.get("discountedPrice") not in _NO_PRICE_STRINGS:
+                logger.warning(
+                    "search_games: no price parsed [ps_id=%s region=%s raw=%r]",
+                    product["id"], region, price_data,
+                )
+            continue
         discount_end = _parse_end_time(price_data.get("endTime"))
         results.append((
             _make_game_info(product),
@@ -299,7 +325,11 @@ async def search_games(query: str, region: str = "en-us") -> list[tuple[GameInfo
     return results
 
 
-async def get_game_info(ps_id: str, region: str = "en-us") -> tuple[GameInfo, RegionPrice | None] | None:
+# Fetches full product data for a known ps_id in a specific region.
+# Returns (GameInfo, RegionPrice) if the game exists and has a purchasable price.
+# Returns None if the product is not found, the region doesn't carry it (UNAVAILABLE),
+# or the game has no paid CTA (free or PS Plus only).
+async def get_game_info(ps_id: str, region: str = "en-us") -> tuple[GameInfo, RegionPrice] | None:
     params = urlencode({
         "operationName": "productRetrieveForUpsellWithCtas",
         "variables": json.dumps({"productId": ps_id}),
@@ -325,32 +355,31 @@ async def get_game_info(ps_id: str, region: str = "en-us") -> tuple[GameInfo, Re
     products = (retrieve.get("concept") or {}).get("products") or []
     product = next((p for p in products if p.get("id") == ps_id), None)
     if not product:
-        logger.warning("get_game_info: product not in concept.products [ps_id=%s region=%s]", ps_id, region)
+        logger.warning(
+            "get_game_info: product not in concept.products [ps_id=%s region=%s]",
+            ps_id, region,
+        )
         return None
 
-    region_price: RegionPrice | None = None
     webctas = product.get("webctas") or []
     price_cta = _outright_price(webctas)
     if price_cta is None:
-        logger.warning(
-            "get_game_info: no purchasable CTA [ps_id=%s region=%s webctas=%r]",
-            ps_id, region, webctas,
-        )
-    if price_cta and not price_cta.get("isFree"):
-        iso = price_cta.get("currencyCode")
-        divisor = 1 if iso in _WHOLE_UNIT_CURRENCIES else 100
-        dv = price_cta.get("discountedValue")
-        bv = price_cta.get("basePriceValue")
-        price = (dv if dv is not None else bv or 0) / divisor or None
-        base_price = bv / divisor if bv is not None and bv != dv else None
-        region_price = _make_region_price(
-            price=price,
-            currency=PS_ISO_TO_SYMBOL.get(iso, iso),
-            base_price=base_price,
-            discount_text=price_cta.get("discountText"),
-            ps_id=ps_id,
-            discount_end=_parse_end_time(price_cta.get("endTime")),
-        )
+        return None
+
+    iso = price_cta.get("currencyCode")
+    divisor = 1 if iso in _WHOLE_UNIT_CURRENCIES else 100
+    dv = price_cta.get("discountedValue")
+    bv = price_cta.get("basePriceValue")
+    price = (dv if dv is not None else bv or 0) / divisor or None
+    base_price = bv / divisor if bv is not None and bv != dv else None
+    region_price = _make_region_price(
+        price=price,
+        currency=PS_ISO_TO_SYMBOL.get(iso, iso),
+        base_price=base_price,
+        discount_text=price_cta.get("discountText"),
+        ps_id=ps_id,
+        discount_end=_parse_end_time(price_cta.get("endTime")),
+    )
 
     logger.info("get_game_info: found %r [ps_id=%s region=%s]", product.get("name"), ps_id, region)
     return _make_game_info(product), region_price

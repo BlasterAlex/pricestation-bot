@@ -33,7 +33,7 @@ async def test_get_user_regions_empty(session: AsyncSession, user):
 
 @pytest.mark.asyncio
 async def test_add_user_region(session: AsyncSession, user, region):
-    added = await add_user_region(session, user.id, region.id)
+    added = await add_user_region(session, user, region.id)
     assert added is True
 
     regions = await get_user_regions(session, user.id)
@@ -43,15 +43,15 @@ async def test_add_user_region(session: AsyncSession, user, region):
 
 @pytest.mark.asyncio
 async def test_add_user_region_duplicate(session: AsyncSession, user, region):
-    await add_user_region(session, user.id, region.id)
-    added = await add_user_region(session, user.id, region.id)
+    await add_user_region(session, user, region.id)
+    added = await add_user_region(session, user, region.id)
     assert added is False
 
 
 @pytest.mark.asyncio
 async def test_remove_user_region(session: AsyncSession, user, region):
-    await add_user_region(session, user.id, region.id)
-    await remove_user_region(session, user.id, region.id)
+    await add_user_region(session, user, region.id)
+    await remove_user_region(session, user, region.id)
 
     regions = await get_user_regions(session, user.id)
     assert regions == []
@@ -59,7 +59,7 @@ async def test_remove_user_region(session: AsyncSession, user, region):
 
 @pytest.mark.asyncio
 async def test_remove_user_region_nonexistent(session: AsyncSession, user, region):
-    await remove_user_region(session, user.id, region.id)
+    await remove_user_region(session, user, region.id)
 
     regions = await get_user_regions(session, user.id)
     assert regions == []
