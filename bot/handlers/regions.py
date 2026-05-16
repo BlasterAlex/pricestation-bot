@@ -17,6 +17,7 @@ from services.region import (
     get_user_regions,
     remove_user_region,
 )
+from services.subscription import sync_subscriptions_for_new_region
 from services.user import get_or_create_user
 
 _MAX_REGION_RESULTS = 20
@@ -125,7 +126,7 @@ async def on_region_add(
     await session.commit()
 
     region = await get_or_create_region(session, locale, country["name"])
-    added = await add_user_region(session, user.id, region.id)
+    added = await add_user_region(session, user, region.id)
 
     await state.clear()
 
@@ -134,6 +135,7 @@ async def on_region_add(
             f"✓ <b>{country['name']}</b> added to your tracked regions.\n\n"
             "View your regions: /my_regions"
         )
+        await sync_subscriptions_for_new_region(session, user, region)
     else:
         await callback.answer("This region is already in your list.", show_alert=True)
 
@@ -149,7 +151,7 @@ async def on_region_remove(
     )
     await session.commit()
 
-    await remove_user_region(session, user.id, region_id)
+    await remove_user_region(session, user, region_id)
 
     regions = await get_user_regions(session, user.id)
     if not regions:

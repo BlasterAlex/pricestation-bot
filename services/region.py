@@ -1,7 +1,12 @@
+import logging
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Region, UserRegion
+from db.models.user import User
+
+logger = logging.getLogger(__name__)
 
 
 async def get_or_create_region(
@@ -27,11 +32,11 @@ async def get_user_regions(session: AsyncSession, user_id: int) -> list[Region]:
 
 
 async def remove_user_region(
-    session: AsyncSession, user_id: int, region_id: int
+    session: AsyncSession, user: User, region_id: int
 ) -> None:
     result = await session.execute(
         select(UserRegion).where(
-            UserRegion.user_id == user_id,
+            UserRegion.user_id == user.id,
             UserRegion.region_id == region_id,
         )
     )
@@ -39,19 +44,21 @@ async def remove_user_region(
     if row is not None:
         await session.delete(row)
         await session.commit()
+        logger.info("removed region telegram_id=%d region_id=%d", user.telegram_id, region_id)
 
 
 async def add_user_region(
-    session: AsyncSession, user_id: int, region_id: int
+    session: AsyncSession, user: User, region_id: int
 ) -> bool:
     exists = await session.execute(
         select(UserRegion).where(
-            UserRegion.user_id == user_id,
+            UserRegion.user_id == user.id,
             UserRegion.region_id == region_id,
         )
     )
     if exists.scalar_one_or_none() is not None:
         return False
-    session.add(UserRegion(user_id=user_id, region_id=region_id))
+    session.add(UserRegion(user_id=user.id, region_id=region_id))
     await session.commit()
+    logger.info("added region telegram_id=%d region_id=%d", user.telegram_id, region_id)
     return True

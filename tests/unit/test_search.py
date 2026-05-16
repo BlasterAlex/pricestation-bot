@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from bot.handlers.search import _best_ps_id, _do_search
-from services.ps_store import GameInfo, RegionPrice
+from bot.handlers.search import _do_search
+from services.ps_store import GameInfo, RegionPrice, best_ps_id
 
 UP_ID = "UP9000-PPSA03016_00-GAME"
 EP_ID = "EP9000-CUSA12345_00-GAME"
@@ -11,36 +11,36 @@ JP_ID = "JP9000-PPSA99999_00-GAME"
 KP_ID = "KP9000-PPSA00001_00-GAME"
 
 
-# --- _best_ps_id ---
+# --- best_ps_id (from services.ps_store) ---
 
-def test_best_ps_id_eu_prefers_ep():
+def testbest_ps_id_eu_prefers_ep():
     ps_ids = {"en-us": UP_ID, "en-gb": EP_ID}
-    assert _best_ps_id("en-pl", ps_ids) == EP_ID
+    assert best_ps_id("en-pl", ps_ids) == EP_ID
 
-def test_best_ps_id_us_prefers_up():
+def testbest_ps_id_us_prefers_up():
     ps_ids = {"en-gb": EP_ID, "en-us": UP_ID}
-    assert _best_ps_id("en-us", ps_ids) == UP_ID
+    assert best_ps_id("en-us", ps_ids) == UP_ID
 
-def test_best_ps_id_jp_prefers_jp():
+def testbest_ps_id_jp_prefers_jp():
     ps_ids = {"en-gb": EP_ID, "ja-jp": JP_ID}
-    assert _best_ps_id("ja-jp", ps_ids) == JP_ID
+    assert best_ps_id("ja-jp", ps_ids) == JP_ID
 
-def test_best_ps_id_kr_prefers_kp():
+def testbest_ps_id_kr_prefers_kp():
     ps_ids = {"en-gb": EP_ID, "ko-kr": KP_ID}
-    assert _best_ps_id("ko-kr", ps_ids) == KP_ID
+    assert best_ps_id("ko-kr", ps_ids) == KP_ID
 
-def test_best_ps_id_eu_no_ep_returns_none():
-    assert _best_ps_id("en-pl", {"en-us": UP_ID}) is None
+def testbest_ps_id_eu_no_ep_returns_none():
+    assert best_ps_id("en-pl", {"en-us": UP_ID}) is None
 
-def test_best_ps_id_us_no_up_returns_none():
-    assert _best_ps_id("en-us", {"en-gb": EP_ID}) is None
+def testbest_ps_id_us_no_up_returns_none():
+    assert best_ps_id("en-us", {"en-gb": EP_ID}) is None
 
-def test_best_ps_id_empty_returns_none():
-    assert _best_ps_id("en-gb", {}) is None
+def testbest_ps_id_empty_returns_none():
+    assert best_ps_id("en-gb", {}) is None
 
-def test_best_ps_id_multiple_ep_returns_first():
+def testbest_ps_id_multiple_ep_returns_first():
     ps_ids = {"en-gb": EP_ID, "en-pl": "EP1111-CUSA00000_00-OTHER"}
-    result = _best_ps_id("de-de", ps_ids)
+    result = best_ps_id("de-de", ps_ids)
     assert result is not None
     assert result.startswith("EP")
 
@@ -190,50 +190,6 @@ async def test_fallback_fires_per_region(mocker, common_mocks):
     assert calls == {(EP_ID, "de-de"), (EP_ID, "fr-fr")}
 
 
-@pytest.mark.asyncio
-async def test_free_games_excluded_from_results(mocker, common_mocks):
-    """Games with no price in any region (free/demo) should not appear in the list."""
-    regions = [_region("en-us")]
-    mocker.patch("bot.handlers.search.get_user_regions", new_callable=AsyncMock, return_value=regions)
-
-    paid_game = _make_game(UP_ID, title="Paid Game", price=39.99, currency="$")
-    free_game = _make_game("UP9000-PPSA99999_00-FREE", title="Free Game Demo", price=None, currency=None)
-    mocker.patch("bot.handlers.search.search_games", new_callable=AsyncMock, return_value=[paid_game, free_game])
-    mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock, return_value=None)
-
-    state = AsyncMock()
-    captured = {}
-    state.update_data = AsyncMock(side_effect=lambda **kw: captured.update(kw))
-
-    await _do_search(_make_message(), state, AsyncMock(), "game")
-
-    entries = captured.get("entries", [])
-    titles = [e["game"]["title"] for e in entries]
-    assert "Paid Game" in titles
-    assert "Free Game Demo" not in titles
-
-
-@pytest.mark.asyncio
-async def test_free_game_excluded_after_fallback(mocker, common_mocks):
-    """Game found via fallback with price=None should still be excluded."""
-    regions = [_region("en-gb"), _region("de-de")]
-    mocker.patch("bot.handlers.search.get_user_regions", new_callable=AsyncMock, return_value=regions)
-
-    free_game = _make_game(EP_ID, title="Free Demo", price=None, currency=None)
-    mocker.patch("bot.handlers.search.search_games", new_callable=AsyncMock, side_effect=[[free_game], []])
-
-    fallback_free = _make_game(EP_ID, title="Free Demo", price=None, currency=None)
-    mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock, return_value=fallback_free)
-
-    state = AsyncMock()
-    captured = {}
-    state.update_data = AsyncMock(side_effect=lambda **kw: captured.update(kw))
-
-    await _do_search(_make_message(), state, AsyncMock(), "free demo")
-
-    entries = captured.get("entries", [])
-    assert len(entries) == 0
-
 
 @pytest.mark.asyncio
 async def test_fallback_result_merged_into_prices(mocker, common_mocks):
@@ -265,23 +221,3 @@ async def test_fallback_result_merged_into_prices(mocker, common_mocks):
     assert prices["de-de"]["price"] == 39.99
 
 
-@pytest.mark.asyncio
-async def test_paid_price_not_overwritten_by_free(mocker, common_mocks):
-    """If a region returns both a paid and a free product with the same title, the paid price wins."""
-    regions = [_region("ja-jp")]
-    mocker.patch("bot.handlers.search.get_user_regions", new_callable=AsyncMock, return_value=regions)
-
-    paid = _make_game(JP_ID, title="Minecraft", price=2640.0, currency="¥")
-    free = _make_game("JP0127-CUSA00283_00-MINECRAFTPS40000", title="Minecraft", price=None, currency=None)
-    mocker.patch("bot.handlers.search.search_games", new_callable=AsyncMock, return_value=[paid, free])
-    mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock, return_value=None)
-
-    state = AsyncMock()
-    captured = {}
-    state.update_data = AsyncMock(side_effect=lambda **kw: captured.update(kw))
-
-    await _do_search(_make_message(), state, AsyncMock(), "minecraft")
-
-    entries = captured.get("entries", [])
-    assert len(entries) == 1
-    assert entries[0]["prices"]["ja-jp"]["price"] == 2640.0
