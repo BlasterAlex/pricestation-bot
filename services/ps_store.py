@@ -8,7 +8,6 @@ from urllib.parse import urlencode
 import aiohttp
 
 from bot.metrics import ps_api_duration, ps_api_none_results, ps_api_requests
-
 from services.currency import PS_CURRENCY_MAP, PS_ISO_TO_SYMBOL
 
 logger = logging.getLogger(__name__)

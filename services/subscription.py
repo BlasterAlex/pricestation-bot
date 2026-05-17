@@ -6,12 +6,12 @@ from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from bot.metrics import region_sync_not_found, subscriptions_already_exists, subscriptions_created
 from db.models.game import Game
 from db.models.game_region import GameRegion
 from db.models.region import Region
 from db.models.subscription import Subscription
 from db.models.user import User
-from bot.metrics import region_sync_not_found, subscriptions_already_exists, subscriptions_created
 from services.ps_store import GameInfo, RegionPrice, best_ps_id, get_game_info, search_games
 
 logger = logging.getLogger(__name__)
