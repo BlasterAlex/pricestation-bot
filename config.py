@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     SCHEDULER_INTERVAL_HOURS: int = 4
     LOG_LEVEL: str = "INFO"
 
-    model_config = SettingsConfigDict(env_file="deploy/.env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file="deploy/.env", env_file_encoding="utf-8", extra="ignore")
 
 
 settings = Settings()

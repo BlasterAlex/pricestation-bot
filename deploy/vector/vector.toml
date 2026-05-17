@@ -1,0 +1,131 @@
+# Sources
+
+[sources.bot_logs]
+type = "docker_logs"
+include_containers = ["pricestation-bot"]
+
+[sources.bot_metrics]
+type = "prometheus_scrape"
+endpoints = ["http://pricestation-bot:8000"]
+scrape_interval_secs = 60
+
+# Log-based alerts
+
+[transforms.filter_log_errors]
+type = "filter"
+inputs = ["bot_logs"]
+condition.type = "vrl"
+condition.source = "match!(.message, r'ERROR|Exception|Traceback')"
+
+[transforms.throttle_log_errors]
+type = "throttle"
+inputs = ["filter_log_errors"]
+threshold = 1
+window_secs = 300
+
+[transforms.format_log_alert]
+type = "remap"
+inputs = ["throttle_log_errors"]
+source = '''
+  _msg = string!(.message)
+  .message = encode_json({
+    "chat_id": to_int!("${ALERT_CHAT_ID}"),
+    "text": "<b>🚨 PriceStation Log Alert</b>\n<pre>" + _msg + "</pre>",
+    "parse_mode": "HTML"
+  })
+'''
+
+# Metrics-based alerts
+
+[transforms.filter_error_metrics]
+type = "filter"
+inputs = ["bot_metrics"]
+condition.type = "vrl"
+condition.source = '.name == "ps_api_requests_total" || .name == "ps_api_none_results_total" || .name == "bot_messages_failed_total" || .name == "region_sync_games_not_found_total"'
+
+[transforms.detect_increases]
+type = "lua"
+inputs = ["filter_error_metrics"]
+version = "2"
+hooks.init = "init"
+hooks.process = "process"
+source = """
+function init()
+  _prev = {}
+end
+
+function process(event, emit)
+  local name = event.metric.name
+  local key = name
+  local tags_str = ""
+
+  if event.metric.tags then
+    for k, v in pairs(event.metric.tags) do
+      key = key .. "|" .. k .. "=" .. v
+      tags_str = tags_str .. " " .. k .. "=" .. v
+    end
+  end
+
+  -- For ps_api_requests_total, only alert on 4xx/5xx status
+  if name == "ps_api_requests_total" then
+    local status = (event.metric.tags and event.metric.tags.status) or ""
+    local first = string.sub(status, 1, 1)
+    if first ~= "4" and first ~= "5" then
+      _prev[key] = event.metric.counter and event.metric.counter.value or 0
+      return
+    end
+  end
+
+  local current_val = (event.metric.counter and event.metric.counter.value) or 0
+  local prev_val = _prev[key]
+  _prev[key] = current_val
+
+  if prev_val ~= nil and current_val > prev_val then
+    emit({
+      log = {
+        metric_name = name,
+        tags_str = tags_str,
+        delta = tostring(math.floor(current_val - prev_val)),
+      }
+    })
+  end
+end
+"""
+
+[transforms.throttle_metric_alerts]
+type = "throttle"
+inputs = ["detect_increases"]
+threshold = 1
+window_secs = 300
+key_field = "metric_name"
+
+[transforms.format_metric_alert]
+type = "remap"
+inputs = ["throttle_metric_alerts"]
+source = '''
+  _name = string!(.metric_name)
+  _tags = string!(.tags_str)
+  _delta = string!(.delta)
+  .message = encode_json({
+    "chat_id": to_int!("${ALERT_CHAT_ID}"),
+    "text": "<b>🚨 PriceStation Metric Alert</b>\n<code>" + _name + _tags + "</code>\n+<b>" + _delta + "</b> за последние 60 сек",
+    "parse_mode": "HTML"
+  })
+'''
+
+# Sink
+
+[sinks.telegram]
+type = "http"
+inputs = ["format_log_alert", "format_metric_alert"]
+uri = "https://api.telegram.org/bot${ALERT_BOT_TOKEN}/sendMessage"
+method = "post"
+encoding.codec = "raw_message"
+
+[sinks.telegram.batch]
+max_events = 1
+timeout_secs = 1
+
+[sinks.telegram.request]
+retry_attempts = 3
+headers.Content-Type = "application/json"

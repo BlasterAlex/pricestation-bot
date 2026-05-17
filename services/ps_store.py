@@ -1,10 +1,13 @@
 ﻿import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
 import aiohttp
+
+from bot.metrics import ps_api_duration, ps_api_none_results, ps_api_requests
 
 from services.currency import PS_CURRENCY_MAP, PS_ISO_TO_SYMBOL
 
@@ -287,17 +290,25 @@ async def search_games(
     headers = _gql_headers(region, "https://store.playstation.com/")
     words = [w.lower() for w in query.split() if w]
 
+    _t0 = time.monotonic()
     async with aiohttp.ClientSession() as session:
         async with session.get(f"{_GQL_URL}?{params}", headers=headers) as resp:
+            _status = resp.status
             if resp.status != 200:
                 level = logging.WARNING if resp.status in _WARN_STATUSES else logging.ERROR
                 logger.log(level, "search_games: HTTP %d [query=%r region=%s]", resp.status, query, region)
+                ps_api_requests.labels(operation="search", status=str(_status)).inc()
+                ps_api_duration.labels(operation="search").observe(time.monotonic() - _t0)
+                ps_api_none_results.labels(operation="search").inc()
                 return []
             data = await resp.json(content_type=None)
+    ps_api_requests.labels(operation="search", status="200").inc()
+    ps_api_duration.labels(operation="search").observe(time.monotonic() - _t0)
 
     page = (data.get("data") or {}).get("universalSearch")
     if not page:
         logger.warning("search_games: no universalSearch data [query=%r region=%s]", query, region)
+        ps_api_none_results.labels(operation="search").inc()
         return []
 
     results: list[tuple[GameInfo, RegionPrice]] = []
@@ -336,20 +347,28 @@ async def get_game_info(ps_id: str, region: str = "en-us") -> tuple[GameInfo, Re
         "extensions": json.dumps({"persistedQuery": {"version": 1, "sha256Hash": _GQL_UPSELL_HASH}}),
     })
 
+    _t0 = time.monotonic()
     async with aiohttp.ClientSession() as session:
         async with session.get(
             f"{_GQL_URL}?{params}",
             headers=_gql_headers(region, f"https://store.playstation.com/{region}/product/{ps_id}/"),
         ) as resp:
+            _status = resp.status
             if resp.status != 200:
                 level = logging.WARNING if resp.status in _WARN_STATUSES else logging.ERROR
                 logger.log(level, "get_game_info: HTTP %d [ps_id=%s region=%s]", resp.status, ps_id, region)
+                ps_api_requests.labels(operation="get_game_info", status=str(_status)).inc()
+                ps_api_duration.labels(operation="get_game_info").observe(time.monotonic() - _t0)
+                ps_api_none_results.labels(operation="get_game_info").inc()
                 return None
             data = await resp.json(content_type=None)
+    ps_api_requests.labels(operation="get_game_info", status="200").inc()
+    ps_api_duration.labels(operation="get_game_info").observe(time.monotonic() - _t0)
 
     retrieve = (data.get("data") or {}).get("productRetrieve")
     if not retrieve:
         logger.warning("get_game_info: product not found [ps_id=%s region=%s]", ps_id, region)
+        ps_api_none_results.labels(operation="get_game_info").inc()
         return None
 
     products = (retrieve.get("concept") or {}).get("products") or []
@@ -359,6 +378,7 @@ async def get_game_info(ps_id: str, region: str = "en-us") -> tuple[GameInfo, Re
             "get_game_info: product not in concept.products [ps_id=%s region=%s]",
             ps_id, region,
         )
+        ps_api_none_results.labels(operation="get_game_info").inc()
         return None
 
     webctas = product.get("webctas") or []

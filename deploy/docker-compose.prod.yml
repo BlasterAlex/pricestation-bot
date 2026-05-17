@@ -23,6 +23,25 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  alerts:
+    container_name: pricestation-alerts
+    image: timberio/vector:0.42.0-alpine
+    command: ["--config", "/etc/vector/vector.toml"]
+    volumes:
+      - ./vector/vector.toml:/etc/vector/vector.toml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    env_file: .env
+    depends_on:
+      bot:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
