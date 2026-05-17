@@ -4,6 +4,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.metrics import bot_handler_errors
 from bot.states.subscription import SearchForm
 from services.ps_store import GameInfo, RegionPrice
 from services.subscription import subscribe_to_game, unsubscribe_from_game
@@ -21,6 +22,7 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext, session: Asyn
 
     index = int(callback.data.split(":", 1)[1])
     if index >= len(entries):
+        bot_handler_errors.inc()
         await callback.message.answer("Game not found. Please search again.")
         return
 
@@ -52,6 +54,7 @@ async def on_unsubscribe(callback: CallbackQuery, state: FSMContext, session: As
 
     index = int(callback.data.split(":", 1)[1])
     if index >= len(entries):
+        bot_handler_errors.inc()
         await callback.message.answer("Game not found. Please search again.")
         return
 

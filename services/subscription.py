@@ -6,6 +6,7 @@ from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from bot.metrics import region_sync_not_found, subscriptions_already_exists, subscriptions_created
 from db.models.game import Game
 from db.models.game_region import GameRegion
 from db.models.region import Region
@@ -96,6 +97,7 @@ async def subscribe_to_game(
             "subscribed telegram_id=%d to new game %r regions=%s",
             user.telegram_id, game_info.title, region_codes,
         )
+        subscriptions_created.inc()
         return True
 
     # Game already exists
@@ -103,6 +105,7 @@ async def subscribe_to_game(
     existing_sub: Subscription | None = rows[0][3]
 
     if existing_sub is not None:
+        subscriptions_already_exists.inc()
         return False
 
     # Prefer ASCII title (same rule as in search merge: localized prefixes like "Набір" lose to ASCII)
@@ -151,6 +154,7 @@ async def subscribe_to_game(
         "subscribed telegram_id=%d to existing game_id=%d %r",
         user.telegram_id, game.id, game.title,
     )
+    subscriptions_created.inc()
     return True
 
 
@@ -270,6 +274,7 @@ async def sync_subscriptions_for_new_region(
                 "sync fallback: no match for game_id=%d normalized=%r region=%s",
                 game_id, normalized_title, region.code,
             )
+            region_sync_not_found.inc()
             continue
         region_prices.append((game_id, rp))
 
