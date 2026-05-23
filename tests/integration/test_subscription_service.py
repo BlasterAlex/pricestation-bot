@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import Game, GameRegion, Region, Subscription, User
 from services.ps_store import GameInfo, RegionPrice
 from services.subscription import (
+    _find_region_price,
     is_subscribed,
     subscribe_to_game,
     sync_subscriptions_for_new_region,
@@ -16,8 +17,8 @@ from services.subscription import (
 )
 
 
-def _make_game_info(title: str = "Test Game", type_: str = "FULL_GAME") -> GameInfo:
-    return GameInfo(title=title, platforms=["PS5"], type=type_, cover_url=None)
+def _make_game_info(title: str = "Test Game", type_: str = "FULL_GAME", ps_id_suffix: str | None = None) -> GameInfo:
+    return GameInfo(title=title, platforms=["PS5"], type=type_, cover_url=None, ps_id_suffix=ps_id_suffix)
 
 
 def _make_region_price(
@@ -52,7 +53,7 @@ async def test_subscribe_new_game_creates_game(session: AsyncSession, user, regi
 
     await subscribe_to_game(session, user, game_info, prices)
 
-    result = await session.scalar(select(Game).where(Game.normalized_title == game_info.normalized_title))
+    result = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
     assert result is not None
     assert result.title == "Test Game"
 
@@ -65,7 +66,7 @@ async def test_subscribe_new_game_creates_game_region(session: AsyncSession, use
 
     await subscribe_to_game(session, user, game_info, prices)
 
-    game = await session.scalar(select(Game).where(Game.normalized_title == game_info.normalized_title))
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
     gr = await session.scalar(select(GameRegion).where(GameRegion.game_id == game.id))
     assert gr is not None
     assert gr.ps_id == "EP0001-PPSA00001_00-TESTGAME"
@@ -81,7 +82,7 @@ async def test_subscribe_new_game_creates_subscription(session: AsyncSession, us
     created = await subscribe_to_game(session, user, game_info, prices)
 
     assert created is True
-    game = await session.scalar(select(Game).where(Game.normalized_title == game_info.normalized_title))
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
     sub = await session.scalar(
         select(Subscription).where(Subscription.game_id == game.id, Subscription.user_id == user.id)
     )
@@ -113,7 +114,7 @@ async def test_subscribe_existing_game_not_subscribed(session: AsyncSession, use
     created = await subscribe_to_game(session, user, game_info, prices)
 
     assert created is True
-    game = await session.scalar(select(Game).where(Game.normalized_title == game_info.normalized_title))
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
     sub = await session.scalar(
         select(Subscription).where(Subscription.game_id == game.id, Subscription.user_id == user.id)
     )
@@ -136,7 +137,7 @@ async def test_subscribe_existing_game_adds_missing_game_region(session: AsyncSe
     }
     await subscribe_to_game(session, user, game_info, prices_both)
 
-    game = await session.scalar(select(Game).where(Game.normalized_title == game_info.normalized_title))
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
     grs = (await session.scalars(select(GameRegion).where(GameRegion.game_id == game.id))).all()
     region_ids = {gr.region_id for gr in grs}
     assert region.id in region_ids
@@ -167,7 +168,7 @@ async def test_subscribe_prefers_ascii_title(session: AsyncSession, user, region
 
     await subscribe_to_game(session, user, ascii_game, prices)
 
-    game = await session.scalar(select(Game).where(Game.normalized_title == ascii_game.normalized_title))
+    game = await session.scalar(select(Game).where(Game.composite_key == ascii_game.composite_key))
     assert game.title == "Test Game"
 
 
@@ -184,7 +185,7 @@ async def test_subscribe_keeps_title_if_new_is_non_ascii(session: AsyncSession, 
 
     await subscribe_to_game(session, user, localized, prices)
 
-    game = await session.scalar(select(Game).where(Game.normalized_title == ascii_game.normalized_title))
+    game = await session.scalar(select(Game).where(Game.composite_key == ascii_game.composite_key))
     assert game.title == "Test Game"
 
 
@@ -197,7 +198,7 @@ async def test_is_subscribed_true(session: AsyncSession, user, region):
     prices = {region.code: _make_region_price()}
     await subscribe_to_game(session, user, game_info, prices)
 
-    result = await is_subscribed(session, user.telegram_id, game_info.normalized_title)
+    result = await is_subscribed(session, user.telegram_id, game_info.composite_key)
 
     assert result is True
 
@@ -217,10 +218,10 @@ async def test_unsubscribe_removes_subscription(session: AsyncSession, user, reg
     prices = {region.code: _make_region_price()}
     await subscribe_to_game(session, user, game_info, prices)
 
-    removed = await unsubscribe_from_game(session, user.telegram_id, game_info.normalized_title)
+    removed = await unsubscribe_from_game(session, user.telegram_id, game_info.composite_key)
 
     assert removed is True
-    result = await is_subscribed(session, user.telegram_id, game_info.normalized_title)
+    result = await is_subscribed(session, user.telegram_id, game_info.composite_key)
     assert result is False
 
 
@@ -239,7 +240,7 @@ async def test_sync_creates_game_regions_for_new_region(session: AsyncSession, u
     prices = {region.code: _make_region_price(ps_id="EP0001-PPSA00001_00-TESTGAME")}
     await subscribe_to_game(session, user, game_info, prices)
 
-    game = await session.scalar(select(Game).where(Game.normalized_title == game_info.normalized_title))
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
 
     mock_rp = RegionPrice(ps_id="UP0001-PPSA00001_00-TESTGAME", price=59.99, currency="$",
                           base_price=None, discount_text=None)
@@ -304,7 +305,7 @@ async def test_sync_via_get_game_info_when_prefix_matches(session: AsyncSession,
     prices = {region.code: _make_region_price(ps_id="EP0001-PPSA00001_00-TESTGAME")}
     await subscribe_to_game(session, user, game_info, prices)
 
-    game = await session.scalar(select(Game).where(Game.normalized_title == game_info.normalized_title))
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
 
     mock_rp = RegionPrice(ps_id="EP0001-PPSA00001_00-TESTGAME", price=39.99, currency="€",
                           base_price=None, discount_text=None)
@@ -327,7 +328,7 @@ async def test_sync_game_unavailable_in_new_region(session: AsyncSession, user, 
     prices = {region.code: _make_region_price(ps_id="EP0001")}
     await subscribe_to_game(session, user, game_info, prices)
 
-    game = await session.scalar(select(Game).where(Game.normalized_title == game_info.normalized_title))
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
 
     with patch("services.subscription._find_region_price", new=AsyncMock(return_value=None)):
         await sync_subscriptions_for_new_region(session, user, region2)
@@ -336,3 +337,223 @@ async def test_sync_game_unavailable_in_new_region(session: AsyncSession, user, 
         select(GameRegion).where(GameRegion.game_id == game.id, GameRegion.region_id == region2.id)
     )
     assert gr is None
+
+
+# ── ps_id_suffix grouping ─────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_subscribe_stores_ps_id_suffix(session: AsyncSession, user, region):
+    """subscribe_to_game saves the ps_id_suffix from GameInfo."""
+    game_info = _make_game_info(ps_id_suffix="TESTGAME0000")
+    prices = {region.code: _make_region_price(ps_id="EP0001-PPSA00001_00-TESTGAME0000")}
+
+    await subscribe_to_game(session, user, game_info, prices)
+
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
+    assert game.ps_id_suffix == "TESTGAME0000"
+
+
+@pytest.mark.asyncio
+async def test_subscribe_merges_by_suffix_different_composite_key(
+    session: AsyncSession, user, region, region2
+):
+    """Two prices with the same suffix but different localized titles collapse into one game row."""
+    en_info = _make_game_info(title="Test Game Standard Edition PS5", ps_id_suffix="TESTGAME0000")
+    es_info = _make_game_info(title="Edición Estándar Test Game PS5", ps_id_suffix="TESTGAME0000")
+    # Both carry the same suffix → should map to the same DB row
+    en_price = _make_region_price(ps_id="UP0001-PPSA00001_00-TESTGAME0000")
+    es_price = _make_region_price(ps_id="EP0001-PPSA00001_00-TESTGAME0000")
+
+    user2 = User(telegram_id=999999999, username="other")
+    session.add(user2)
+    await session.flush()
+
+    # user2 subscribes via EN title
+    await subscribe_to_game(session, user2, en_info, {region.code: en_price})
+    # user subscribes via ES title (different composite_key, same suffix)
+    await subscribe_to_game(session, user, es_info, {region2.code: es_price})
+
+    from sqlalchemy import func as sa_func
+    count = await session.scalar(select(sa_func.count()).select_from(Game))
+    assert count == 1, "Suffix match should collapse to a single Game row"
+
+
+@pytest.mark.asyncio
+async def test_is_subscribed_true_via_suffix(session: AsyncSession, user, region, region2):
+    """is_subscribed returns True when looked up by suffix even if composite_key differs."""
+    en_info = _make_game_info(title="Test Game Standard Edition PS5", ps_id_suffix="TESTGAME0000")
+    es_info = _make_game_info(title="Edición Estándar Test Game PS5", ps_id_suffix="TESTGAME0000")
+    en_price = _make_region_price(ps_id="UP0001-PPSA00001_00-TESTGAME0000")
+
+    await subscribe_to_game(session, user, en_info, {region.code: en_price})
+
+    # Check subscription using the ES composite_key + suffix
+    result = await is_subscribed(
+        session, user.telegram_id, es_info.composite_key, suffix="TESTGAME0000"
+    )
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_via_suffix(session: AsyncSession, user, region, region2):
+    """unsubscribe_from_game removes subscription when found via suffix."""
+    en_info = _make_game_info(title="Test Game Standard Edition PS5", ps_id_suffix="TESTGAME0000")
+    es_info = _make_game_info(title="Edición Estándar Test Game PS5", ps_id_suffix="TESTGAME0000")
+    en_price = _make_region_price(ps_id="UP0001-PPSA00001_00-TESTGAME0000")
+
+    await subscribe_to_game(session, user, en_info, {region.code: en_price})
+
+    removed = await unsubscribe_from_game(
+        session, user.telegram_id, es_info.composite_key, suffix="TESTGAME0000"
+    )
+    assert removed is True
+    still = await is_subscribed(
+        session, user.telegram_id, en_info.composite_key
+    )
+    assert still is False
+
+
+@pytest.mark.asyncio
+async def test_subscribe_backfills_suffix_on_existing_game(session: AsyncSession, user, region):
+    """If an existing game row has no suffix, subscribe_to_game fills it in."""
+    game_info_no_suffix = _make_game_info()
+    # First subscribe without a suffix
+    await subscribe_to_game(session, user, game_info_no_suffix, {region.code: _make_region_price(ps_id="NOPREFIX")})
+
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info_no_suffix.composite_key))
+    assert game.ps_id_suffix is None
+
+    user2 = User(telegram_id=999999999, username="other")
+    session.add(user2)
+    await session.flush()
+
+    # Second subscribe carries a suffix → should be back-filled onto the existing row
+    game_info_with_suffix = _make_game_info(ps_id_suffix="TESTGAME0000")
+    await subscribe_to_game(
+        session, user2, game_info_with_suffix,
+        {region.code: _make_region_price(ps_id="EP0001-PPSA00001_00-TESTGAME0000")},
+    )
+    await session.refresh(game)
+    assert game.ps_id_suffix == "TESTGAME0000"
+
+
+@pytest.mark.asyncio
+async def test_subscribe_already_subscribed_via_suffix_returns_false(
+    session: AsyncSession, user, region, region2
+):
+    """Subscribing again via a different locale (same suffix, different composite_key) returns False."""
+    en_info = _make_game_info(title="Test Game Standard Edition PS5", ps_id_suffix="TESTGAME0000")
+    es_info = _make_game_info(title="Edición Estándar Test Game PS5", ps_id_suffix="TESTGAME0000")
+    en_price = _make_region_price(ps_id="UP0001-PPSA00001_00-TESTGAME0000")
+    es_price = _make_region_price(ps_id="EP0001-PPSA00001_00-TESTGAME0000")
+
+    await subscribe_to_game(session, user, en_info, {region.code: en_price})
+    # Same user, same suffix, different composite_key → should be False
+    created = await subscribe_to_game(session, user, es_info, {region2.code: es_price})
+
+    assert created is False
+
+
+@pytest.mark.asyncio
+async def test_subscribe_backfill_does_not_overwrite_existing_suffix(
+    session: AsyncSession, user, region, region2
+):
+    """If a game already has a suffix, subscribe_to_game must not overwrite it."""
+    game_info_original = _make_game_info(ps_id_suffix="ORIGINAL0000")
+    prices_first = {region.code: _make_region_price(ps_id="EP0001-PPSA00001_00-ORIGINAL0000")}
+    await subscribe_to_game(session, user, game_info_original, prices_first)
+
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info_original.composite_key))
+    assert game.ps_id_suffix == "ORIGINAL0000"
+
+    user2 = User(telegram_id=999999999, username="other")
+    session.add(user2)
+    await session.flush()
+
+    # Second subscriber brings a different suffix — must not overwrite
+    game_info_different = _make_game_info(ps_id_suffix="DIFFERENT0000")
+    prices_second = {region2.code: _make_region_price(ps_id="UP0001-PPSA00001_00-DIFFERENT0000")}
+    await subscribe_to_game(session, user2, game_info_different, prices_second)
+
+    await session.refresh(game)
+    assert game.ps_id_suffix == "ORIGINAL0000"
+
+
+# ── _find_region_price ────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_find_region_price_matches_by_suffix(mocker):
+    """Matches by suffix even when composite_key differs (localized title variant)."""
+    gi = GameInfo(
+        title="FC 25 Edición Estándar PS5", platforms=["PS5"], type="FULL_GAME",
+        cover_url=None, ps_id_suffix="25STANDARDBUNDLE",
+    )
+    rp = RegionPrice(
+        price=59.99, currency="€", base_price=None, discount_text=None,
+        ps_id="EP0006-PPSA20050_00-25STANDARDBUNDLE",
+    )
+    mocker.patch("services.subscription.search_games", new=AsyncMock(return_value=[(gi, rp)]))
+
+    result = await _find_region_price(
+        title="FC 25 Standard Edition PS5",
+        region_code="es-mx",
+        composite_key="fc25standardeditionps5_full_game_ps5",
+        suffix="25STANDARDBUNDLE",
+    )
+
+    assert result is rp
+
+
+@pytest.mark.asyncio
+async def test_find_region_price_falls_back_to_composite_key(mocker):
+    """Falls back to composite_key match when suffix is None."""
+    gi = GameInfo(title="Lies of P", platforms=["PS5"], type="FULL_GAME", cover_url=None)
+    rp = RegionPrice(
+        price=49.99, currency="$", base_price=None, discount_text=None,
+        ps_id="EP1672-PPSA00001_00-1234567890000000",
+    )
+    mocker.patch("services.subscription.search_games", new=AsyncMock(return_value=[(gi, rp)]))
+
+    result = await _find_region_price(
+        title="Lies of P",
+        region_code="en-us",
+        composite_key=gi.composite_key,
+        suffix=None,
+    )
+
+    assert result is rp
+
+
+@pytest.mark.asyncio
+async def test_find_region_price_no_match_returns_none(mocker):
+    """Returns None when neither suffix nor composite_key matches."""
+    gi = GameInfo(title="Other Game", platforms=["PS5"], type="FULL_GAME", cover_url=None)
+    rp = RegionPrice(price=49.99, currency="$", base_price=None, discount_text=None, ps_id="UP9999")
+    mocker.patch("services.subscription.search_games", new=AsyncMock(return_value=[(gi, rp)]))
+
+    result = await _find_region_price(
+        title="Lies of P",
+        region_code="en-us",
+        composite_key="liesofp_full_game_ps5",
+        suffix=None,
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_sync_passes_suffix_to_find_region_price(
+    session: AsyncSession, user, region, region2
+):
+    """sync_subscriptions_for_new_region passes game's ps_id_suffix to _find_region_price."""
+    game_info = _make_game_info(ps_id_suffix="TESTGAME0000")
+    prices = {region.code: _make_region_price(ps_id="EP0001-PPSA00001_00-TESTGAME0000")}
+    await subscribe_to_game(session, user, game_info, prices)
+
+    mock_find = AsyncMock(return_value=None)
+    with patch("services.subscription._find_region_price", new=mock_find):
+        await sync_subscriptions_for_new_region(session, user, region2)
+
+    mock_find.assert_called_once()
+    _, _, _, suffix = mock_find.call_args.args
+    assert suffix == "TESTGAME0000"

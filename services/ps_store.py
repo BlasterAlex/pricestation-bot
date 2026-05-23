@@ -68,21 +68,31 @@ class RegionPrice:
 class GameInfo:
     title: str
     platforms: list[str]
-    type: str
+    type: str | None
     cover_url: str | None
-    normalized_title: str = field(init=False)
+    # Trailing segment of the PS Store product ID. Used as the primary grouping key; falls back
+    # to composite_key when the suffix is not shared across regions.
+    ps_id_suffix: str | None = None
+    # Normalized title + type + platforms. Groups regional variants of the same product.
+    composite_key: str = field(init=False)
 
     def __post_init__(self) -> None:
-        self.normalized_title = GameInfo.normalize_title(self.title)
+        norm = GameInfo.normalize_title(self.title)
+        type_part = (self.type or "").lower()
+        plat_part = "_".join(sorted(p.lower() for p in self.platforms or []))
+        self.composite_key = f"{norm}_{type_part}_{plat_part}"
 
     @staticmethod
     def normalize_title(title: str) -> str:
-        # Removes punctuation, trademark symbols, non-ASCII characters (Cyrillic, CJK,
-        # locale prefixes like "Набір", etc.), and whitespace so that titles collapse
-        # to the same key regardless of regional language prefix.
+        """Strip punctuation, collapse whitespace, lowercase.
+        Non-ASCII chars are removed; if the result is shorter than 3 chars
+        (e.g. fully non-ASCII title), keeps them instead."""
         t = re.sub(r"[™®©:().,'\"!?\-/]", "", title.lower())
-        t = re.sub(r"[^\x00-\x7f]", "", t)
-        return re.sub(r"\s+", "", t)
+        full_norm = re.sub(r"\s+", "", t)
+        ascii_norm = re.sub(r"[^\x00-\x7f]", "", full_norm)
+        if len(ascii_norm) >= 3:
+            return ascii_norm
+        return full_norm
 
     def to_dict(self) -> dict:
         return {
@@ -90,6 +100,7 @@ class GameInfo:
             "platforms": self.platforms,
             "type": self.type,
             "cover_url": self.cover_url,
+            "ps_id_suffix": self.ps_id_suffix,
         }
 
     @classmethod
@@ -174,6 +185,22 @@ def _parse_str_price_data(price_data: dict) -> tuple[float | None, str | None, f
     return price, _canonical_currency(currency), base_price, price_data.get("discountText")
 
 
+def _ps_id_suffix(ps_id: str | None) -> str | None:
+    """Return the trailing product-code segment of a PS Store product ID.
+
+    PS Store IDs follow the pattern ``{PREFIX}-{CONCEPT_ID}-{SUFFIX}``, e.g.
+    ``UP0006-PPSA20049_00-25STANDARDBUNDLE``.  The suffix is identical across all
+    regional prefixes (UP/EP/HP/JP/KP) for the same product, so it can be used
+    to merge cards that have different localized titles and therefore different
+    composite keys.
+
+    Returns ``None`` when *ps_id* is absent or contains no ``-`` separator.
+    """
+    if not ps_id or "-" not in ps_id:
+        return None
+    return ps_id.rsplit("-", 1)[-1] or None
+
+
 def _extract_cover(media: list[dict]) -> str | None:
     for role in ("MASTER", "EDITION_KEY_ART", "FOUR_BY_THREE_BANNER"):
         for item in media:
@@ -205,6 +232,7 @@ def _make_game_info(product: dict) -> GameInfo:
         platforms=product.get("platforms") or [],
         type=product.get("storeDisplayClassification"),
         cover_url=_extract_cover(product.get("media") or []),
+        ps_id_suffix=_ps_id_suffix(product.get("id")),
     )
 
 
@@ -402,11 +430,3 @@ async def get_game_info(ps_id: str, region: str = "en-us") -> tuple[GameInfo, Re
 
     logger.info("get_game_info: found %r [ps_id=%s region=%s]", product.get("name"), ps_id, region)
     return _make_game_info(product), region_price
-
-
-async def get_game_price(ps_id: str, region: str = "en-us") -> float | None:
-    result = await get_game_info(ps_id, region)
-    if result is None:
-        return None
-    _, region_price = result
-    return region_price.price if region_price else None

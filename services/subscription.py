@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -15,6 +15,14 @@ from db.models.user import User
 from services.ps_store import GameInfo, RegionPrice, best_ps_id, get_game_info, search_games
 
 logger = logging.getLogger(__name__)
+
+
+def _game_filter(composite_key: str, suffix: str | None):
+    """SQLAlchemy WHERE clause that matches a game by suffix (primary) or composite_key (fallback)."""
+    f = Game.composite_key == composite_key
+    if suffix:
+        f = or_(Game.ps_id_suffix == suffix, f)
+    return f
 
 
 def _parse_discount_end(s: str | None) -> datetime | None:
@@ -49,11 +57,17 @@ async def subscribe_to_game(
     """
     Ensure the game and its game_regions exist in the DB, then create a subscription.
     Returns True if a new subscription was created, False if it already existed.
+
+    Lookup order:
+      1. By ps_id_suffix — survives title localization.
+      2. By composite_key — fallback for games whose ps_ids have no common suffix.
     """
-    normalized = game_info.normalized_title
+    composite_key = game_info.composite_key
+    suffix = game_info.ps_id_suffix
     region_codes = list(prices.keys())
 
-    # Single query: game + its game_regions (with region) + subscription for this user
+    # Single query: game + its game_regions (with region) + subscription for this user.
+    # Prefer suffix match so localized-title variants collapse to the same game row.
     stmt = (
         select(Game, GameRegion, Region, Subscription)
         .outerjoin(GameRegion, GameRegion.game_id == Game.id)
@@ -62,7 +76,7 @@ async def subscribe_to_game(
             Subscription,
             (Subscription.game_id == Game.id) & (Subscription.user_id == user.id),
         )
-        .where(Game.normalized_title == normalized)
+        .where(_game_filter(composite_key, suffix))
     )
     rows = (await session.execute(stmt)).all()
 
@@ -70,7 +84,8 @@ async def subscribe_to_game(
         # Game doesn't exist yet — create game, game_regions, and subscription
         game = Game(
             title=game_info.title,
-            normalized_title=normalized,
+            composite_key=composite_key,
+            ps_id_suffix=suffix,
             cover_url=game_info.cover_url,
             game_type=game_info.type,
             platforms=game_info.platforms,
@@ -112,6 +127,11 @@ async def subscribe_to_game(
     if game_info.title.isascii() and not game.title.isascii():
         logger.info("updating title for game_id=%d: %r -> %r", game.id, game.title, game_info.title)
         game.title = game_info.title
+
+    # Back-fill suffix if the game row was created before this field existed
+    if suffix and game.ps_id_suffix is None:
+        logger.info("setting ps_id_suffix=%r for game_id=%d", suffix, game.id)
+        game.ps_id_suffix = suffix
 
     # Build map of existing game_regions and regions by code
     existing_grs: dict[str, GameRegion] = {}
@@ -158,12 +178,17 @@ async def subscribe_to_game(
     return True
 
 
-async def is_subscribed(session: AsyncSession, telegram_id: int, normalized_title: str) -> bool:
+async def is_subscribed(
+    session: AsyncSession,
+    telegram_id: int,
+    composite_key: str,
+    suffix: str | None = None,
+) -> bool:
     stmt = (
         select(Subscription.id)
         .join(Game, Game.id == Subscription.game_id)
         .join(User, User.id == Subscription.user_id)
-        .where(Game.normalized_title == normalized_title)
+        .where(_game_filter(composite_key, suffix))
         .where(User.telegram_id == telegram_id)
     )
     return (await session.scalar(stmt)) is not None
@@ -172,38 +197,47 @@ async def is_subscribed(session: AsyncSession, telegram_id: int, normalized_titl
 async def unsubscribe_from_game(
     session: AsyncSession,
     telegram_id: int,
-    normalized_title: str,
+    composite_key: str,
+    suffix: str | None = None,
 ) -> bool:
     """Delete subscription. Returns True if it existed, False otherwise."""
     stmt = (
-        select(Subscription)
+        select(Subscription, Game)
         .join(Game, Game.id == Subscription.game_id)
         .join(User, User.id == Subscription.user_id)
-        .where(Game.normalized_title == normalized_title)
+        .where(_game_filter(composite_key, suffix))
         .where(User.telegram_id == telegram_id)
     )
-    sub = await session.scalar(stmt)
-    if sub is None:
+    row = (await session.execute(stmt)).first()
+    if row is None:
         return False
+    sub, game = row
     await session.delete(sub)
     await session.commit()
-    logger.info("unsubscribed telegram_id=%d from %r", telegram_id, normalized_title)
+    logger.info("unsubscribed telegram_id=%d from game_id=%d %r", telegram_id, game.id, game.title)
     return True
 
 
 async def _find_region_price(
     title: str,
-    normalized_title: str,
     region_code: str,
+    composite_key: str,
+    suffix: str | None
 ) -> RegionPrice | None:
     """Search PS Store by title and return the RegionPrice for the matching game.
 
-    Fetches the top 5 results for `title` in `region_code` and returns the price
-    for the first result whose normalized title exactly matches `normalized_title`.
-    Returns None if no match is found (game unavailable or title mismatch).
+    Fetches the top 5 results for `title` in `region_code` and matches by suffix
+    (primary) or composite_key (fallback), consistent with the two-level grouping
+    used everywhere else. Returns None if no match is found.
     """
     results = await search_games(title, region_code, page_size=5)
-    return next((rp for g, rp in results if g.normalized_title == normalized_title), None)
+    return next(
+        (
+            rp for g, rp in results
+            if (suffix and g.ps_id_suffix == suffix) or g.composite_key == composite_key
+        ),
+        None,
+    )
 
 
 async def sync_subscriptions_for_new_region(
@@ -216,7 +250,7 @@ async def sync_subscriptions_for_new_region(
     # with an available ps_id from any existing game_region.
     existing_gr = aliased(GameRegion)
     stmt = (
-        select(Game.id, Game.title, Game.normalized_title, Region.code, GameRegion.ps_id)
+        select(Game.id, Game.title, Game.composite_key, Game.ps_id_suffix, Region.code, GameRegion.ps_id)
         .join(Subscription, (Subscription.game_id == Game.id) & (Subscription.user_id == user.id))
         .join(GameRegion, GameRegion.game_id == Game.id)
         .join(Region, Region.id == GameRegion.region_id)
@@ -231,32 +265,41 @@ async def sync_subscriptions_for_new_region(
 
     # Collect all ps_ids per game keyed by their region code, then pick the best one.
     # Fall back to title search for games where no matching prefix ps_id is found.
-    game_meta: dict[int, tuple[str, str]] = {}  # game_id -> (title, normalized_title)
-    game_ps_ids_by_region: dict[int, dict[str, str]] = {}
-    for game_id, title, normalized_title, region_code, ps_id in rows:
-        game_meta[game_id] = (title, normalized_title)
-        game_ps_ids_by_region.setdefault(game_id, {})[region_code] = ps_id
+    # game_id -> {"title", "composite_key", "suffix", "ps_ids": {region_code: ps_id}}
+    game_data: dict[int, dict] = {}
+    for game_id, title, composite_key, suffix, region_code, ps_id in rows:
+        if game_id not in game_data:
+            game_data[game_id] = {
+                "title": title,
+                "composite_key": composite_key,
+                "suffix": suffix,
+                "ps_ids": {},
+            }
+        game_data[game_id]["ps_ids"][region_code] = ps_id
 
-    if not game_ps_ids_by_region:
+    if not game_data:
         logger.info(
             "sync: all game_regions already exist for region=%s telegram_id=%d",
             region.code, user.telegram_id,
         )
         return
 
-    chosen: dict[int, str] = {}       # game_id -> ps_id, resolved via get_game_info
-    to_search: list[tuple[int, str, str]] = []  # (game_id, title, normalized_title)
+    chosen: dict[int, str] = {}                            # game_id -> ps_id, resolved via get_game_info
+    to_search: list[tuple[int, str, str, str | None]] = [] # (game_id, title, composite_key, suffix)
 
-    for game_id, ps_ids in game_ps_ids_by_region.items():
-        pid = best_ps_id(region.code, ps_ids)
+    for game_id, data in game_data.items():
+        pid = best_ps_id(region.code, data["ps_ids"])
         if pid:
             chosen[game_id] = pid
         else:
-            to_search.append((game_id, *game_meta[game_id]))
+            to_search.append((game_id, data["title"], data["composite_key"], data["suffix"]))
 
     info_results, search_results = await asyncio.gather(
         asyncio.gather(*[get_game_info(ps_id, region.code) for ps_id in chosen.values()]),
-        asyncio.gather(*[_find_region_price(title, norm, region.code) for _, title, norm in to_search]),
+        asyncio.gather(*[
+            _find_region_price(title, region.code, composite_key, suffix)
+            for _, title, composite_key, suffix in to_search
+        ]),
     )
 
     region_prices: list[tuple[int, RegionPrice]] = []
@@ -268,11 +311,11 @@ async def sync_subscriptions_for_new_region(
         if rp is not None:
             region_prices.append((game_id, rp))
 
-    for (game_id, _, normalized_title), rp in zip(to_search, search_results):
+    for (game_id, _, composite_key, _suffix), rp in zip(to_search, search_results):
         if rp is None:
-            logger.info(
-                "sync fallback: no match for game_id=%d normalized=%r region=%s",
-                game_id, normalized_title, region.code,
+            logger.warning(
+                "sync fallback: no match for game_id=%d region=%s composite_key=%s suffix=%s",
+                game_id, region.code, composite_key, _suffix
             )
             region_sync_not_found.inc()
             continue
