@@ -50,6 +50,12 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000')" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   alerts:
@@ -62,6 +68,8 @@ services:
     env_file: .env
     depends_on:
       bot:
+        condition: service_healthy
+      worker:
         condition: service_healthy
     restart: unless-stopped
 
