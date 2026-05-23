@@ -29,7 +29,8 @@ async def check_prices() -> None:
 
     async with AsyncSessionFactory() as session:
         game_regions = await price.get_game_regions_to_check(session)
-        logger.info("Regions to check: %d", len(game_regions))
+        unique_games = len({gr.game_id for gr in game_regions})
+        logger.info("%d games, %d store pages to check", unique_games, len(game_regions))
         skipped = dropped = unchanged = 0
         for gr in game_regions:
             result = await _check_game_region(session, gr)

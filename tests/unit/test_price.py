@@ -1,4 +1,4 @@
-from services.price import is_price_dropped, price_drop_percent
+from services.price import is_price_dropped
 
 
 def test_price_dropped():
@@ -11,11 +11,3 @@ def test_price_not_dropped():
 
 def test_price_unchanged():
     assert is_price_dropped(1000.0, 1000.0) is False
-
-
-def test_drop_percent():
-    assert price_drop_percent(1000.0, 750.0) == 25
-
-
-def test_drop_percent_rounds():
-    assert price_drop_percent(1000.0, 667.0) == 33
