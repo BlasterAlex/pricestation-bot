@@ -1,5 +1,6 @@
 from db.models.game import Game
 from db.models.game_region import GameRegion
+from db.models.price_drop import PriceDrop
 from db.models.region import Region
 from db.models.subscription import Subscription
 from db.models.user import User
@@ -9,6 +10,7 @@ __all__ = [
     "User",
     "Game",
     "GameRegion",
+    "PriceDrop",
     "Region",
     "Subscription",
     "UserRegion",

@@ -8,33 +8,37 @@
 
 Точки входа - откуда Vector получает данные. Каждый source непрерывно собирает события и передаёт их в transforms.
 
-| ID            | Тип                 | Описание                                               |
-|---------------|---------------------|--------------------------------------------------------|
-| `bot_logs`    | `docker_logs`       | Логи контейнера `pricestation-bot`                     |
-| `bot_metrics` | `prometheus_scrape` | Метрики с `http://pricestation-bot:8000` каждые 60 сек |
+| ID               | Тип                 | Описание                                                  |
+|------------------|---------------------|-----------------------------------------------------------|
+| `bot_logs`       | `docker_logs`       | Логи контейнера `pricestation-bot`                        |
+| `bot_metrics`    | `prometheus_scrape` | Метрики с `http://pricestation-bot:8000` каждые 60 сек    |
+| `worker_metrics` | `prometheus_scrape` | Метрики с `http://pricestation-worker:8000` каждые 60 сек |
 
 ## Transforms
 
 Промежуточная обработка событий: фильтрация, троттлинг и форматирование перед отправкой. Каждый transform принимает события от одного или нескольких источников и передаёт результат дальше по цепочке.
 
-| ID                       | Описание                                                       |
-|--------------------------|----------------------------------------------------------------|
-| `filter_log_errors`      | Фильтр логов по `ERROR\|Exception\|Traceback`                  |
-| `throttle_log_errors`    | Не более 1 лог-алерта за 5 минут                               |
-| `format_log_alert`       | Формирует JSON-тело для Telegram                               |
-| `filter_error_metrics`   | Фильтр по отслеживаемым счётчикам                              |
-| `detect_increases`       | Lua: дельта между скрейпами, эмитит событие при росте счётчика |
-| `throttle_metric_alerts` | Не более 1 алерта на метрику за 5 минут                        |
-| `format_metric_alert`    | Формирует JSON-тело для Telegram                               |
+| ID                       | Описание                                                                           |
+|--------------------------|------------------------------------------------------------------------------------|
+| `filter_log_errors`      | Фильтр логов по `ERROR\|Exception\|Traceback`                                      |
+| `throttle_log_errors`    | Не более 1 лог-алерта за 5 минут                                                   |
+| `format_log_alert`       | Формирует JSON-тело для Telegram                                                   |
+| `filter_error_metrics`   | Фильтр по отслеживаемым счётчикам бота                                             |
+| `detect_increases`       | Lua: дельта между скрейпами, эмитит событие при росте счётчика                     |
+| `filter_worker_last_run` | Фильтр метрики `price_check_last_run_timestamp`                                    |
+| `detect_stale_job`       | Lua: эмитит событие если джоба не запускалась более 6 часов (dead man's switch)    |
+| `throttle_metric_alerts` | Не более 1 алерта на метрику за 5 минут; общий для счётчиков и dead man's switch   |
+| `format_metric_alert`    | Формирует JSON-тело для Telegram                                                   |
 
 ## Отслеживаемые метрики
 
-| Метрика                             | Условие алерта                            |
-|-------------------------------------|-------------------------------------------|
-| `ps_api_requests_total`             | Рост счётчика со статусом `4xx` или `5xx` |
-| `ps_api_none_results_total`         | Любой рост                                |
-| `bot_messages_failed_total`         | Любой рост                                |
-| `region_sync_games_not_found_total` | Любой рост                                |
+| Метрика                              | Условие алерта                            |
+|--------------------------------------|-------------------------------------------|
+| `ps_api_requests_total`              | Рост счётчика со статусом `4xx` или `5xx` |
+| `ps_api_none_results_total`          | Любой рост                                |
+| `bot_messages_failed_total`          | Любой рост                                |
+| `region_sync_games_not_found_total`  | Любой рост                                |
+| `price_check_last_run_timestamp`     | Gauge не обновлялся более 6 часов         |
 
 ## Sinks
 
