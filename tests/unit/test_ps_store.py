@@ -1,6 +1,6 @@
 import pytest
 
-from services.ps_store import GameInfo, RegionPrice, get_game_info, search_games
+from services.ps_store import GameInfo, RegionPrice, _ps_id_suffix, get_game_info, search_games
 
 # --- normalize_title ---
 
@@ -146,6 +146,7 @@ async def test_search_result_fields(mock_store):
     assert price.base_price is None
     assert price.discount_text is None
     assert game.cover_url == "https://example.com/cover.png"
+    assert game.ps_id_suffix == "MARVELSPIDERMAN2"
 
 
 @pytest.mark.asyncio
@@ -315,10 +316,78 @@ async def test_get_game_info_not_found_returns_none(make_mock_store):
     assert result is None
 
 
-def test_game_info_normalized_title_auto_computed():
+def test_game_info_composite_key_auto_computed():
     game = GameInfo(title="God of War: Ragnarök™", platforms=["PS5"], type="FULL_GAME", cover_url=None)
-    assert game.normalized_title == GameInfo.normalize_title("God of War: Ragnarök™")
-    assert game.normalized_title == "godofwarragnark"
+    assert game.composite_key == "godofwarragnark_full_game_ps5"
+
+
+def test_game_info_composite_key_sorts_platforms():
+    game = GameInfo(title="Some Game", platforms=["PS5", "PS4"], type="FULL_GAME", cover_url=None)
+    assert game.composite_key == "somegame_full_game_ps4_ps5"
+
+
+def test_game_info_composite_key_none_type():
+    game = GameInfo(title="Some Game", platforms=["PS5"], type=None, cover_url=None)
+    assert game.composite_key == "somegame__ps5"
+
+
+def test_game_info_composite_key_separates_editions():
+    standard = GameInfo(title="Minecraft", platforms=["PS5"], type="FULL_GAME", cover_url=None)
+    deluxe = GameInfo(title="Minecraft", platforms=["PS5"], type="PREMIUM_EDITION", cover_url=None)
+    assert standard.composite_key != deluxe.composite_key
+
+
+def test_game_info_composite_key_separates_platforms():
+    ps4 = GameInfo(title="Bloodborne", platforms=["PS4"], type="FULL_GAME", cover_url=None)
+    ps5 = GameInfo(title="Bloodborne", platforms=["PS5"], type="FULL_GAME", cover_url=None)
+    assert ps4.composite_key != ps5.composite_key
+
+
+def test_game_info_composite_key_merges_regional_variants():
+    # UP and EP variants of the same edition must produce the same key
+    us = GameInfo(title="Bloodborne™", platforms=["PS4"], type="FULL_GAME", cover_url=None)
+    eu = GameInfo(title="Bloodborne™", platforms=["PS4"], type="FULL_GAME", cover_url=None)
+    assert us.composite_key == eu.composite_key
+
+
+# --- normalize_title ASCII fallback ---
+
+def test_normalize_title_strips_non_ascii_by_default():
+    # Non-ASCII removed when enough ASCII content remains
+    assert GameInfo.normalize_title("Набір FINAL FANTASY VII") == "finalfantasyvii"
+
+def test_normalize_title_keeps_non_ascii_when_result_too_short():
+    # Fully non-ASCII title → ascii_norm is too short → fallback keeps non-ASCII chars
+    result = GameInfo.normalize_title("バルダーズ・ゲート3")
+    assert "バルダーズ" in result
+
+def test_normalize_title_ascii_preferred_when_long_enough():
+    # ASCII norm is long enough → non-ASCII chars are stripped
+    result = GameInfo.normalize_title("Baldur's Gate™ 3")
+    assert result == "baldursgate3"
+
+
+# --- composite_key fallback for fully non-ASCII titles ---
+
+def test_composite_key_fallback_japanese_title():
+    # "バルダーズ・ゲート3" → ascii norm = "3" (too short) → fallback keeps non-ASCII
+    game = GameInfo(title="バルダーズ・ゲート3", platforms=["PS5"], type="FULL_GAME", cover_url=None)
+    norm_part = game.composite_key.split("_full_game_")[0]
+    assert "バルダーズ" in norm_part
+    assert len(norm_part) > 1
+
+def test_composite_key_fallback_korean_title():
+    game = GameInfo(title="발더스 게이트 3", platforms=["PS5"], type="FULL_GAME", cover_url=None)
+    norm_part = game.composite_key.split("_full_game_")[0]
+    assert len(norm_part) > 1
+
+def test_composite_key_no_fallback_when_ascii_norm_long_enough():
+    # Non-ASCII prefix stripped, result long enough → no fallback
+    cyrillic = GameInfo(title="Набір FINAL FANTASY VII REMAKE & REBIRTH Twin Pack",
+                        platforms=["PS5"], type="FULL_GAME", cover_url=None)
+    ascii_ = GameInfo(title="FINAL FANTASY VII REMAKE & REBIRTH Twin Pack",
+                      platforms=["PS5"], type="FULL_GAME", cover_url=None)
+    assert cyrillic.composite_key == ascii_.composite_key
 
 
 @pytest.mark.asyncio
@@ -367,3 +436,28 @@ async def test_get_game_info_skips_free_trial_cta(make_mock_store):
     _, price = result
     assert price.price == 2640
     assert price.currency == "¥"
+
+
+# --- ps_id_suffix ---
+
+def test_ps_id_suffix_standard():
+    assert _ps_id_suffix("UP0006-PPSA20049_00-25STANDARDBUNDLE") == "25STANDARDBUNDLE"
+
+def test_ps_id_suffix_ep_prefix():
+    assert _ps_id_suffix("EP0082-PPSA01284_00-FFVIIREBIRTH0000") == "FFVIIREBIRTH0000"
+
+def test_ps_id_suffix_no_dash():
+    assert _ps_id_suffix("NODASH") is None
+
+def test_ps_id_suffix_none():
+    assert _ps_id_suffix(None) is None
+
+def test_ps_id_suffix_empty_string():
+    assert _ps_id_suffix("") is None
+
+def test_ps_id_suffix_matches_across_regions():
+    """UP and EP variants of the same product share the same suffix."""
+    assert (
+        _ps_id_suffix("UP0006-PPSA20049_00-25STANDARDBUNDLE")
+        == _ps_id_suffix("EP0006-PPSA20050_00-25STANDARDBUNDLE")
+    )

@@ -59,7 +59,9 @@ async def on_unsubscribe(callback: CallbackQuery, state: FSMContext, session: As
         return
 
     game_info = GameInfo.from_dict(entries[index]["game"])
-    removed = await unsubscribe_from_game(session, callback.from_user.id, game_info.normalized_title)
+    removed = await unsubscribe_from_game(
+        session, callback.from_user.id, game_info.composite_key, game_info.ps_id_suffix
+    )
 
     if removed:
         await callback.message.answer(f"🔕 Unsubscribed from <b>{game_info.title}</b>.")

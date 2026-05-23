@@ -10,11 +10,12 @@ from db.base import Base
 
 class Game(Base):
     __tablename__ = "games"
-    __table_args__ = (Index("uq_games_normalized_title", "normalized_title", unique=True),)
+    __table_args__ = (Index("uq_games_composite_key", "composite_key", unique=True),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(256), nullable=False)
-    normalized_title: Mapped[str] = mapped_column(String(256), nullable=False)
+    composite_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    ps_id_suffix: Mapped[str | None] = mapped_column(String(64), index=True)
     cover_url: Mapped[str | None] = mapped_column(Text)
     game_type: Mapped[str | None] = mapped_column(String(64))
     platforms: Mapped[list[str] | None] = mapped_column(ARRAY(String))

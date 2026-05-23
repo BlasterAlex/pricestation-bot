@@ -55,8 +55,9 @@ async def test_ascii_title_preferred_over_cyrillic(mocker, common_mocks):
 
     cyrillic_game = _make_game(EP_ID, title="Набір FINAL FANTASY VII REMAKE & REBIRTH Twin Pack")
     ascii_game = _make_game(EP_ID, title="FINAL FANTASY VII REMAKE & REBIRTH Twin Pack")
+    # needs_us=True (uk-ua, en-gb don't include en-us) → extra call for en-us canonical
     mocker.patch("bot.handlers.search.search_games", new_callable=AsyncMock,
-                 side_effect=[[cyrillic_game], [ascii_game]])
+                 side_effect=[[cyrillic_game], [ascii_game], []])
     mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock)
 
     state = AsyncMock()
@@ -77,8 +78,9 @@ async def test_non_ascii_title_kept_when_no_ascii_alternative(mocker, common_moc
     mocker.patch("bot.handlers.search.get_user_regions", new_callable=AsyncMock, return_value=regions)
 
     cyrillic_game = _make_game(EP_ID, title="Набір FINAL FANTASY VII REMAKE & REBIRTH Twin Pack")
+    # needs_us=True (uk-ua doesn't include en-us) → extra call for en-us canonical
     mocker.patch("bot.handlers.search.search_games", new_callable=AsyncMock,
-                 side_effect=[[cyrillic_game]])
+                 side_effect=[[cyrillic_game], []])
     mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock)
 
     state = AsyncMock()
@@ -92,10 +94,48 @@ async def test_non_ascii_title_kept_when_no_ascii_alternative(mocker, common_moc
     assert entries[0]["game"]["title"] == "Набір FINAL FANTASY VII REMAKE & REBIRTH Twin Pack"
 
 
+# --- suffix merge ---
+
+@pytest.mark.asyncio
+async def test_suffix_merge_collapses_localized_variants(mocker, common_mocks):
+    """Two regions return the same game with different localized titles but same ps_id_suffix → one card."""
+    regions = [_region("en-gb"), _region("es-mx")]
+    mocker.patch("bot.handlers.search.get_user_regions", new_callable=AsyncMock, return_value=regions)
+
+    en_game = _make_game(
+        "EP0006-PPSA20049_00-25STANDARDBUNDLE",
+        title="FC 25 Standard Edition PS5",
+        ps_id_suffix="25STANDARDBUNDLE",
+    )
+    es_game = _make_game(
+        "EP0006-PPSA20050_00-25STANDARDBUNDLE",
+        title="FC 25 Edición Estándar PS5",
+        ps_id_suffix="25STANDARDBUNDLE",
+    )
+
+    mock_search = mocker.patch("bot.handlers.search.search_games", new_callable=AsyncMock)
+    # needs_us=True (en-gb, es-mx don't include en-us) → extra call for en-us canonical
+    mock_search.side_effect = [[en_game], [es_game], []]
+
+    mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock)
+
+    state = AsyncMock()
+    captured = {}
+    state.update_data = AsyncMock(side_effect=lambda **kw: captured.update(kw))
+
+    await _do_search(_make_message(), state, AsyncMock(), "fc 25")
+
+    entries = captured.get("entries", [])
+    assert len(entries) == 1, "Same suffix → one card, not two"
+    prices = entries[0]["prices"]
+    assert "en-gb" in prices
+    assert "es-mx" in prices
+
+
 # --- fallback helpers ---
 
-def _make_game(ps_id, title="Test Game", price=49.99, currency="€"):
-    game = GameInfo(title=title, platforms=["PS5"], type="FULL_GAME", cover_url=None)
+def _make_game(ps_id, title="Test Game", price=49.99, currency="€", ps_id_suffix=None):
+    game = GameInfo(title=title, platforms=["PS5"], type="FULL_GAME", cover_url=None, ps_id_suffix=ps_id_suffix)
     region_price = RegionPrice(price=price, currency=currency, base_price=None, discount_text=None, ps_id=ps_id)
     return game, region_price
 
@@ -127,7 +167,8 @@ async def test_fallback_fires_for_missing_eu_region(mocker, common_mocks):
 
     game = _make_game(EP_ID)
     mock_search = mocker.patch("bot.handlers.search.search_games", new_callable=AsyncMock)
-    mock_search.side_effect = [[game], []]
+    # needs_us=True (en-gb, de-de don't include en-us) → extra call for en-us canonical
+    mock_search.side_effect = [[game], [], []]
 
     mock_get_info = mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock, return_value=None)
 
@@ -162,7 +203,8 @@ async def test_fallback_not_fired_when_all_regions_found(mocker, common_mocks):
     game_ep = _make_game(EP_ID)
     game_de = _make_game("EP9000-CUSA12345_00-GAME-DE")
     mock_search = mocker.patch("bot.handlers.search.search_games", new_callable=AsyncMock)
-    mock_search.side_effect = [[game_ep], [game_de]]
+    # needs_us=True (en-gb, de-de don't include en-us) → extra call for en-us canonical
+    mock_search.side_effect = [[game_ep], [game_de], []]
 
     mock_get_info = mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock)
 
@@ -179,7 +221,8 @@ async def test_fallback_fires_per_region(mocker, common_mocks):
 
     game = _make_game(EP_ID)
     mock_search = mocker.patch("bot.handlers.search.search_games", new_callable=AsyncMock)
-    mock_search.side_effect = [[game], [], []]
+    # needs_us=True (en-gb, de-de, fr-fr don't include en-us) → extra call for en-us canonical
+    mock_search.side_effect = [[game], [], [], []]
 
     mock_get_info = mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock, return_value=None)
 
@@ -193,13 +236,14 @@ async def test_fallback_fires_per_region(mocker, common_mocks):
 
 @pytest.mark.asyncio
 async def test_fallback_result_merged_into_prices(mocker, common_mocks):
-    """Successful fallback adds the region's price to by_title, which ends up in FSM state."""
+    """Successful fallback adds the region's price to by_key, which ends up in FSM state."""
     regions = [_region("en-gb"), _region("de-de")]
     mocker.patch("bot.handlers.search.get_user_regions", new_callable=AsyncMock, return_value=regions)
 
     game = _make_game(EP_ID, price=49.99, currency="€")
     mock_search = mocker.patch("bot.handlers.search.search_games", new_callable=AsyncMock)
-    mock_search.side_effect = [[game], []]
+    # needs_us=True (en-gb, de-de don't include en-us) → extra call for en-us canonical
+    mock_search.side_effect = [[game], [], []]
 
     fallback_game = _make_game(EP_ID, price=39.99, currency="€")
     mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock, return_value=fallback_game)
