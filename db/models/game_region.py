@@ -21,7 +21,7 @@ class GameRegion(Base):
     discount_text: Mapped[str | None] = mapped_column(Text)
     discount_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_checked: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     game: Mapped["Game"] = relationship(back_populates="game_regions")
     region: Mapped["Region"] = relationship(back_populates="game_regions")

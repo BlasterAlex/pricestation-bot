@@ -1,4 +1,4 @@
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.formatters import TYPE_EMOJI, locale_flag
@@ -34,14 +34,15 @@ def user_regions_keyboard(regions: list) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def search_results_keyboard(games: list[GameInfo]) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
+def _add_game_buttons(builder: InlineKeyboardBuilder, games: list[GameInfo]) -> None:
     for i, game in enumerate(games):
         emoji = TYPE_EMOJI.get(game.type, "🎮")
-        builder.button(
-            text=f"{emoji} {game.title}",
-            callback_data=f"game_select:{i}",
-        )
+        builder.button(text=f"{emoji} {game.title}", callback_data=f"game_select:{i}")
+
+
+def search_results_keyboard(games: list[GameInfo]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    _add_game_buttons(builder, games)
     builder.adjust(1)
     return builder.as_markup()
 
@@ -52,6 +53,23 @@ def game_card_keyboard(game_index: int, is_subscribed: bool = False) -> InlineKe
         builder.button(text="🔕 Unsubscribe", callback_data=f"unsubscribe:{game_index}")
     else:
         builder.button(text="🔔 Subscribe", callback_data=f"subscribe:{game_index}")
+    return builder.as_markup()
+
+
+def subscriptions_list_keyboard(
+    games: list[GameInfo], page: int, total_pages: int
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    _add_game_buttons(builder, games)
+    builder.adjust(1)
+    if total_pages > 1:
+        nav: list[InlineKeyboardButton] = []
+        if page > 0:
+            nav.append(InlineKeyboardButton(text="← Prev", callback_data=f"subs_page:{page - 1}"))
+        nav.append(InlineKeyboardButton(text=f"{page + 1} / {total_pages}", callback_data="noop"))
+        if page < total_pages - 1:
+            nav.append(InlineKeyboardButton(text="Next →", callback_data=f"subs_page:{page + 1}"))
+        builder.row(*nav)
     return builder.as_markup()
 
 
