@@ -11,4 +11,4 @@ class UserRegion(Base):
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
     region_id: Mapped[int] = mapped_column(ForeignKey("regions.id"), primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

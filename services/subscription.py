@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import exists, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -12,6 +12,7 @@ from db.models.game_region import GameRegion
 from db.models.region import Region
 from db.models.subscription import Subscription
 from db.models.user import User
+from db.models.user_region import UserRegion
 from services.ps_store import GameInfo, RegionPrice, best_ps_id, get_game_info, search_games
 
 logger = logging.getLogger(__name__)
@@ -216,6 +217,75 @@ async def unsubscribe_from_game(
     await session.commit()
     logger.info("unsubscribed telegram_id=%d from game_id=%d %r", telegram_id, game.id, game.title)
     return True
+
+
+async def get_user_subscriptions_page(
+    session: AsyncSession,
+    telegram_id: int,
+    page: int,
+    page_size: int,
+) -> tuple[int, list[tuple[GameInfo, dict[str, RegionPrice]]]]:
+    """Return (total, [(GameInfo, {region_code: RegionPrice})]) for the given page.
+
+    Results are sorted by subscription date desc (newest first).
+    Prices are read from game_regions in the DB — may be stale.
+    """
+    count_stmt = (
+        select(func.count(Subscription.id))
+        .join(User, User.id == Subscription.user_id)
+        .where(User.telegram_id == telegram_id)
+    )
+    total: int = (await session.scalar(count_stmt)) or 0
+    if total == 0:
+        return 0, []
+
+    page_stmt = (
+        select(Game, Subscription.created_at)
+        .join(Subscription, Subscription.game_id == Game.id)
+        .join(User, User.id == Subscription.user_id)
+        .where(User.telegram_id == telegram_id)
+        .order_by(Subscription.created_at.desc())
+        .limit(page_size)
+        .offset(page * page_size)
+    )
+    page_rows = (await session.execute(page_stmt)).all()
+    if not page_rows:
+        return total, []
+
+    game_ids = [row[0].id for row in page_rows]
+
+    prices_map: dict[int, dict[str, RegionPrice]] = {}
+    gr_stmt = (
+        select(GameRegion, Region)
+        .join(Region, Region.id == GameRegion.region_id)
+        .join(UserRegion, UserRegion.region_id == Region.id)
+        .join(User, User.id == UserRegion.user_id)
+        .where(GameRegion.game_id.in_(game_ids), User.telegram_id == telegram_id)
+    )
+    for gr, region in (await session.execute(gr_stmt)).all():
+        discount_end_str: str | None = None
+        if gr.discount_end is not None:
+            discount_end_str = gr.discount_end.strftime("%Y-%m-%d %H:%M")
+        prices_map.setdefault(gr.game_id, {})[region.code] = RegionPrice(
+            price=float(gr.current_price) if gr.current_price is not None else None,
+            currency=region.currency,
+            base_price=float(gr.base_price) if gr.base_price is not None else None,
+            discount_text=gr.discount_text,
+            ps_id=gr.ps_id,
+            discount_end=discount_end_str,
+        )
+
+    result: list[tuple[GameInfo, dict[str, RegionPrice]]] = []
+    for game, _ in page_rows:
+        game_info = GameInfo(
+            title=game.title,
+            platforms=game.platforms or [],
+            type=game.game_type,
+            cover_url=game.cover_url,
+            ps_id_suffix=game.ps_id_suffix,
+        )
+        result.append((game_info, prices_map.get(game.id, {})))
+    return total, result
 
 
 async def _find_region_price(
