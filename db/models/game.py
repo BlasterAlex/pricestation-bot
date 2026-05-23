@@ -23,3 +23,4 @@ class Game(Base):
 
     subscriptions: Mapped[list["Subscription"]] = relationship(back_populates="game")
     game_regions: Mapped[list["GameRegion"]] = relationship(back_populates="game")
+    price_drops: Mapped[list["PriceDrop"]] = relationship(back_populates="game")

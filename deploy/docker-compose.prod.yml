@@ -16,15 +16,42 @@ services:
       interval: 5s
       retries: 5
 
-  bot:
-    container_name: pricestation-bot
+  migrate:
+    container_name: pricestation-migrate
     image: ghcr.io/blasteralex/pricestation-bot:latest
+    entrypoint: ["alembic"]
+    command: ["upgrade", "head"]
     env_file: .env
     depends_on:
       db:
         condition: service_healthy
+
+  bot:
+    container_name: pricestation-bot
+    image: ghcr.io/blasteralex/pricestation-bot:latest
+    command: ["bot.main"]
+    env_file: .env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    container_name: pricestation-worker
+    image: ghcr.io/blasteralex/pricestation-bot:latest
+    command: ["worker.main"]
+    env_file: .env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000')" ]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -41,6 +68,8 @@ services:
     env_file: .env
     depends_on:
       bot:
+        condition: service_healthy
+      worker:
         condition: service_healthy
     restart: unless-stopped
 

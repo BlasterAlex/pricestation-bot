@@ -2,7 +2,6 @@
 omit =
     tests/*
     migrations/*
-    scheduler/*
 
 [report]
 exclude_lines =

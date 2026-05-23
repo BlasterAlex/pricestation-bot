@@ -9,6 +9,11 @@ type = "prometheus_scrape"
 endpoints = ["http://pricestation-bot:8000"]
 scrape_interval_secs = 60
 
+[sources.worker_metrics]
+type = "prometheus_scrape"
+endpoints = ["http://pricestation-worker:8000"]
+scrape_interval_secs = 60
+
 # Log-based alerts
 
 [transforms.filter_log_errors]
@@ -94,7 +99,7 @@ end
 
 [transforms.throttle_metric_alerts]
 type = "throttle"
-inputs = ["detect_increases"]
+inputs = ["detect_increases", "detect_stale_job"]
 threshold = 1
 window_secs = 300
 key_field = "metric_name"
@@ -112,6 +117,32 @@ source = '''
     "parse_mode": "HTML"
   })
 '''
+
+# Dead man's switch — alert if price check job hasn't run for 6+ hours
+
+[transforms.filter_worker_last_run]
+type = "filter"
+inputs = ["worker_metrics"]
+condition.type = "vrl"
+condition.source = '.name == "price_check_last_run_timestamp"'
+
+[transforms.detect_stale_job]
+type = "lua"
+inputs = ["filter_worker_last_run"]
+version = "2"
+hooks.process = "process"
+source = """
+function process(event, emit)
+  local val = event.metric.gauge and event.metric.gauge.value or 0
+  if val > 0 and (os.time() - val) > 21600 then
+    emit({ log = {
+      metric_name = "price_check_last_run_timestamp",
+      tags_str = "",
+      delta = tostring(math.floor((os.time() - val) / 3600)) .. "h stale",
+    }})
+  end
+end
+"""
 
 # Sink
 

@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     BOT_TOKEN: str
     DATABASE_URL: str
-    SCHEDULER_INTERVAL_HOURS: int = 4
+    PRICE_CHECK_CRON: str = "0 */4 * * *"
     LOG_LEVEL: str = "INFO"
 
     model_config = SettingsConfigDict(env_file="deploy/.env", env_file_encoding="utf-8", extra="ignore")
