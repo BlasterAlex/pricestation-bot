@@ -7,7 +7,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.formatters import format_game_card, format_game_list
-from bot.keyboards.inline import game_card_keyboard, search_results_keyboard
+from bot.keyboards.inline import search_results_keyboard, subscribe_keyboard, unsubscribe_keyboard
 from bot.states.subscription import SearchForm
 from services.currency import get_rates
 from services.ps_store import GameInfo, RegionPrice, best_ps_id, get_game_info, search_games
@@ -262,8 +262,8 @@ async def on_game_select(callback: CallbackQuery, state: FSMContext, session: As
         rates,
         footer="Want to track prices in more regions?\nAdd a new one: /add_region",
     )
-    subscribed = await is_subscribed(session, callback.from_user.id, game.composite_key, game.ps_id_suffix)
-    keyboard = game_card_keyboard(index, is_subscribed=subscribed)
+    game_id = await is_subscribed(session, callback.from_user.id, game.composite_key, game.ps_id_suffix)
+    keyboard = unsubscribe_keyboard(game_id) if game_id else subscribe_keyboard(index)
 
     if game.cover_url:
         await callback.message.answer_photo(photo=game.cover_url, caption=caption, reply_markup=keyboard)

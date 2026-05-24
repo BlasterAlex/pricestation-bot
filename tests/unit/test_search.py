@@ -284,9 +284,10 @@ def _make_entry(ps_id: str, base_price: float | None = None, discount_end: str |
 
 @pytest.fixture
 def select_mocks(mocker):
-    mocker.patch("bot.handlers.search.is_subscribed", new_callable=AsyncMock, return_value=False)
+    mocker.patch("bot.handlers.search.is_subscribed", new_callable=AsyncMock, return_value=None)
     mocker.patch("bot.handlers.search.format_game_card", return_value="caption")
-    mocker.patch("bot.handlers.search.game_card_keyboard", return_value=MagicMock())
+    mocker.patch("bot.handlers.search.subscribe_keyboard", return_value=MagicMock())
+    mocker.patch("bot.handlers.search.unsubscribe_keyboard", return_value=MagicMock())
 
 
 @pytest.mark.asyncio

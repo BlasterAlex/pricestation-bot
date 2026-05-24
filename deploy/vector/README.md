@@ -8,11 +8,11 @@
 
 Точки входа - откуда Vector получает данные. Каждый source непрерывно собирает события и передаёт их в transforms.
 
-| ID               | Тип                 | Описание                                                  |
-|------------------|---------------------|-----------------------------------------------------------|
-| `bot_logs`       | `docker_logs`       | Логи контейнера `pricestation-bot`                        |
-| `bot_metrics`    | `prometheus_scrape` | Метрики с `http://pricestation-bot:8000` каждые 60 сек    |
-| `worker_metrics` | `prometheus_scrape` | Метрики с `http://pricestation-worker:8000` каждые 60 сек |
+| ID               | Тип                 | Описание                                                                    |
+|------------------|---------------------|-----------------------------------------------------------------------------|
+| `bot_logs`       | `docker_logs`       | Логи контейнеров `pricestation-bot` и `pricestation-worker`                 |
+| `bot_metrics`    | `prometheus_scrape` | Метрики с `http://pricestation-bot:8000` каждые 60 сек                      |
+| `worker_metrics` | `prometheus_scrape` | Метрики с `http://pricestation-worker:8000` каждые 60 сек                   |
 
 ## Transforms
 
@@ -38,6 +38,7 @@
 | `ps_api_none_results_total`          | Любой рост                                |
 | `bot_messages_failed_total`          | Любой рост                                |
 | `region_sync_games_not_found_total`  | Любой рост                                |
+| `notifications_failed_total`         | Любой рост                                |
 | `price_check_last_run_timestamp`     | Gauge не обновлялся более 6 часов         |
 
 ## Sinks

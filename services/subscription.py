@@ -6,7 +6,12 @@ from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from bot.metrics import region_sync_not_found, subscriptions_already_exists, subscriptions_created
+from bot.metrics import (
+    region_sync_not_found,
+    subscriptions_already_exists,
+    subscriptions_created,
+    subscriptions_removed,
+)
 from db.models.game import Game
 from db.models.game_region import GameRegion
 from db.models.region import Region
@@ -184,38 +189,37 @@ async def is_subscribed(
     telegram_id: int,
     composite_key: str,
     suffix: str | None = None,
-) -> bool:
+) -> int | None:
+    """Return game_id if subscribed, None otherwise."""
     stmt = (
-        select(Subscription.id)
+        select(Subscription.game_id)
         .join(Game, Game.id == Subscription.game_id)
         .join(User, User.id == Subscription.user_id)
         .where(_game_filter(composite_key, suffix))
         .where(User.telegram_id == telegram_id)
     )
-    return (await session.scalar(stmt)) is not None
+    return await session.scalar(stmt)
 
 
 async def unsubscribe_from_game(
     session: AsyncSession,
     telegram_id: int,
-    composite_key: str,
-    suffix: str | None = None,
+    game_id: int,
 ) -> bool:
-    """Delete subscription. Returns True if it existed, False otherwise."""
+    """Delete subscription by game_id. Returns True if it existed, False otherwise."""
     stmt = (
-        select(Subscription, Game)
-        .join(Game, Game.id == Subscription.game_id)
+        select(Subscription)
         .join(User, User.id == Subscription.user_id)
-        .where(_game_filter(composite_key, suffix))
+        .where(Subscription.game_id == game_id)
         .where(User.telegram_id == telegram_id)
     )
-    row = (await session.execute(stmt)).first()
-    if row is None:
+    sub = (await session.scalar(stmt))
+    if sub is None:
         return False
-    sub, game = row
     await session.delete(sub)
     await session.commit()
-    logger.info("unsubscribed telegram_id=%d from game_id=%d %r", telegram_id, game.id, game.title)
+    logger.info("unsubscribed telegram_id=%d from game_id=%d", telegram_id, game_id)
+    subscriptions_removed.inc()
     return True
 
 

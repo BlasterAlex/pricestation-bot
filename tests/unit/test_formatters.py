@@ -167,42 +167,51 @@ def test_card_price_lines_no_old_price():
 
 def test_card_price_lines_price_drop_arrow():
     prices = {"en-gb": RegionPrice(39.99, "€", None, None, ps_id=EP_ID)}
-    old = {"en-gb": RegionPrice(59.99, "€", None, None)}
-    lines = _card_price_lines(prices, RATES, old_prices=old)
+    lines = _card_price_lines(prices, RATES, old_prices={"en-gb": 59.99})
     assert "↓" in lines[0]
     assert "<s>" in lines[0]
 
 
 def test_card_price_lines_price_increase_arrow():
     prices = {"en-gb": RegionPrice(69.99, "€", None, None, ps_id=EP_ID)}
-    old = {"en-gb": RegionPrice(59.99, "€", None, None)}
-    lines = _card_price_lines(prices, RATES, old_prices=old)
+    lines = _card_price_lines(prices, RATES, old_prices={"en-gb": 59.99})
     assert "↑" in lines[0]
     assert "<s>" in lines[0]
 
 
 def test_card_price_lines_no_arrow_when_price_unchanged():
     prices = {"en-gb": RegionPrice(59.99, "€", None, None, ps_id=EP_ID)}
-    old = {"en-gb": RegionPrice(59.99, "€", None, None)}
-    lines = _card_price_lines(prices, RATES, old_prices=old)
+    lines = _card_price_lines(prices, RATES, old_prices={"en-gb": 59.99})
     assert "↓" not in lines[0]
     assert "↑" not in lines[0]
 
 
 def test_card_price_lines_old_usd_shown():
     prices = {"en-gb": RegionPrice(39.99, "€", None, None, ps_id=EP_ID)}
-    old = {"en-gb": RegionPrice(59.99, "€", None, None)}
-    lines = _card_price_lines(prices, RATES, old_prices=old)
+    lines = _card_price_lines(prices, RATES, old_prices={"en-gb": 59.99})
     assert "($" in lines[0]
 
 
 def test_card_price_lines_no_old_usd_for_usd():
     prices = {"en-us": RegionPrice(7.99, "$", None, None, ps_id=PS_ID)}
-    old = {"en-us": RegionPrice(9.99, "$", None, None)}
-    lines = _card_price_lines(prices, RATES, old_prices=old)
+    lines = _card_price_lines(prices, RATES, old_prices={"en-us": 9.99})
     assert "↓" in lines[0]
     old_part = lines[0].split("↓")[1]
     assert "($" not in old_part
+
+
+def test_card_price_lines_no_arrow_when_sale_and_old_equals_base():
+    # base_price == old_price → strikethrough base already visible, arrow would duplicate
+    prices = {"en-us": RegionPrice(39.99, "$", 59.99, "-33%", ps_id=PS_ID)}
+    lines = _card_price_lines(prices, RATES, old_prices={"en-us": 59.99})
+    assert "↓" not in lines[0]
+
+
+def test_card_price_lines_arrow_when_sale_and_old_differs_from_base():
+    # base_price != old_price → price dropped from an intermediate value, show arrow
+    prices = {"en-us": RegionPrice(39.99, "$", 59.99, "-33%", ps_id=PS_ID)}
+    lines = _card_price_lines(prices, RATES, old_prices={"en-us": 49.99})
+    assert "↓" in lines[0]
 
 
 # --- format_game_list ---
@@ -242,8 +251,7 @@ def test_format_game_card_no_prices_no_header():
 
 def test_format_game_card_with_old_prices():
     prices = {"en-in": RegionPrice(3999.0, "Rs", None, None)}
-    old = {"en-in": RegionPrice(4999.0, "Rs", None, None)}
-    result = format_game_card(GAME, prices, RATES, old_prices=old)
+    result = format_game_card(GAME, prices, RATES, old_prices={"en-in": 4999.0})
     assert "↓" in result
     assert "<s>" in result
 

@@ -200,17 +200,17 @@ async def test_is_subscribed_true(session: AsyncSession, user, region):
 
     result = await is_subscribed(session, user.telegram_id, game_info.composite_key)
 
-    assert result is True
+    assert result is not None
 
 
 @pytest.mark.asyncio
 async def test_is_subscribed_false(session: AsyncSession, user):
     result = await is_subscribed(session, user.telegram_id, "nonexistentgame")
 
-    assert result is False
+    assert result is None
 
 
-# ── unsubscribe_from_game ─────────────────────────────────────────────────────
+# ── unsubscribe_from_game ────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_unsubscribe_removes_subscription(session: AsyncSession, user, region):
@@ -218,16 +218,16 @@ async def test_unsubscribe_removes_subscription(session: AsyncSession, user, reg
     prices = {region.code: _make_region_price()}
     await subscribe_to_game(session, user, game_info, prices)
 
-    removed = await unsubscribe_from_game(session, user.telegram_id, game_info.composite_key)
+    game_id = await is_subscribed(session, user.telegram_id, game_info.composite_key)
+    removed = await unsubscribe_from_game(session, user.telegram_id, game_id)
 
     assert removed is True
-    result = await is_subscribed(session, user.telegram_id, game_info.composite_key)
-    assert result is False
+    assert await is_subscribed(session, user.telegram_id, game_info.composite_key) is None
 
 
 @pytest.mark.asyncio
 async def test_unsubscribe_not_subscribed_returns_false(session: AsyncSession, user):
-    removed = await unsubscribe_from_game(session, user.telegram_id, "nonexistentgame")
+    removed = await unsubscribe_from_game(session, user.telegram_id, 999999)
 
     assert removed is False
 
@@ -391,26 +391,24 @@ async def test_is_subscribed_true_via_suffix(session: AsyncSession, user, region
     result = await is_subscribed(
         session, user.telegram_id, es_info.composite_key, suffix="TESTGAME0000"
     )
-    assert result is True
+    assert result is not None
 
 
 @pytest.mark.asyncio
 async def test_unsubscribe_via_suffix(session: AsyncSession, user, region, region2):
-    """unsubscribe_from_game removes subscription when found via suffix."""
+    """unsubscribe_from_game removes subscription found via suffix lookup."""
     en_info = _make_game_info(title="Test Game Standard Edition PS5", ps_id_suffix="TESTGAME0000")
     es_info = _make_game_info(title="Edición Estándar Test Game PS5", ps_id_suffix="TESTGAME0000")
     en_price = _make_region_price(ps_id="UP0001-PPSA00001_00-TESTGAME0000")
 
     await subscribe_to_game(session, user, en_info, {region.code: en_price})
 
-    removed = await unsubscribe_from_game(
+    game_id = await is_subscribed(
         session, user.telegram_id, es_info.composite_key, suffix="TESTGAME0000"
     )
+    removed = await unsubscribe_from_game(session, user.telegram_id, game_id)
     assert removed is True
-    still = await is_subscribed(
-        session, user.telegram_id, en_info.composite_key
-    )
-    assert still is False
+    assert await is_subscribed(session, user.telegram_id, en_info.composite_key) is None
 
 
 @pytest.mark.asyncio

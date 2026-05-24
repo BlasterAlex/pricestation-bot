@@ -25,3 +25,13 @@ price_drops_created = Counter(
     "price_drops_created_total",
     "Price drops recorded in the database",
 )
+
+notifications_sent = Counter(
+    "notifications_sent_total",
+    "Total price drop notifications sent to users",
+)
+
+notifications_failed = Counter(
+    "notifications_failed_total",
+    "Total price drop notifications that failed to send",
+)

@@ -36,42 +36,41 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext, session: Asyn
     prices = {region: RegionPrice.from_dict(v) for region, v in entry["prices"].items()}
 
     user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username)
-
     created = await subscribe_to_game(session, user, game_info, prices)
+
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     if created:
         await callback.message.answer(
             f"🔔 Subscribed to <b>{game_info.title}</b>.\n"
-            "You'll be notified when the price drops."
+            "You'll be notified when the price drops.\n\n"
+            "View all subscriptions: /my_subscriptions"
         )
     else:
         await callback.message.answer(
-            f"You're already subscribed to <b>{game_info.title}</b> 🔔"
+            f"You're already subscribed to <b>{game_info.title}</b>\n\n"
+            "View all subscriptions: /my_subscriptions"
         )
 
 
-@router.callback_query(SearchForm.showing_results, F.data.startswith("unsubscribe:"))
-async def on_unsubscribe(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+@router.callback_query(F.data.startswith("unsubscribe:"))
+async def on_unsubscribe(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
+    game_id = int(callback.data.split(":", 1)[1])
+    removed = await unsubscribe_from_game(session, callback.from_user.id, game_id)
 
-    data = await state.get_data()
-    entries = data.get("entries", [])
-
-    index = int(callback.data.split(":", 1)[1])
-    if index >= len(entries):
-        bot_handler_errors.inc()
-        await callback.message.answer("Game not found. Please search again.")
-        return
-
-    game_info = GameInfo.from_dict(entries[index]["game"])
-    removed = await unsubscribe_from_game(
-        session, callback.from_user.id, game_info.composite_key, game_info.ps_id_suffix
-    )
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     if removed:
-        await callback.message.answer(f"🔕 Unsubscribed from <b>{game_info.title}</b>.")
+        await callback.message.answer("🔕 Unsubscribed.")
     else:
-        await callback.message.answer(f"You're not subscribed to <b>{game_info.title}</b>.")
+        await callback.message.answer("You're not subscribed to this game.")
 
 
 @router.message(Command("subscribe"))

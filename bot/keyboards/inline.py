@@ -47,12 +47,15 @@ def search_results_keyboard(games: list[GameInfo]) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def game_card_keyboard(game_index: int, is_subscribed: bool = False) -> InlineKeyboardMarkup:
+def subscribe_keyboard(game_index: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    if is_subscribed:
-        builder.button(text="🔕 Unsubscribe", callback_data=f"unsubscribe:{game_index}")
-    else:
-        builder.button(text="🔔 Subscribe", callback_data=f"subscribe:{game_index}")
+    builder.button(text="🔔 Subscribe", callback_data=f"subscribe:{game_index}")
+    return builder.as_markup()
+
+
+def unsubscribe_keyboard(game_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔕 Unsubscribe", callback_data=f"unsubscribe:{game_id}")
     return builder.as_markup()
 
 
