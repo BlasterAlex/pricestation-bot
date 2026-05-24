@@ -1,0 +1,146 @@
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock
+
+import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from db.models import GameRegion, PriceDrop, Subscription
+from db.models.user_region import UserRegion
+from worker.tasks.notify import send_notifications
+
+PS_ID = "EP0001-CUSA00001_00-TESTGAME"
+COVER_URL = "https://example.com/cover.jpg"
+
+
+def _factory(session):
+    @asynccontextmanager
+    async def _ctx():
+        yield session
+    return lambda: _ctx()
+
+
+@pytest_asyncio.fixture
+async def region_usd(session: AsyncSession, region):
+    region.currency = "$"
+    await session.flush()
+    return region
+
+
+@pytest_asyncio.fixture
+async def user_with_region(session: AsyncSession, user, region_usd):
+    session.add(UserRegion(user_id=user.id, region_id=region_usd.id))
+    await session.flush()
+    return user
+
+
+@pytest_asyncio.fixture
+async def game_region(session: AsyncSession, game, region_usd):
+    gr = GameRegion(
+        game_id=game.id,
+        region_id=region_usd.id,
+        ps_id=PS_ID,
+        current_price=29.99,
+        old_price=49.99,
+    )
+    session.add(gr)
+    await session.flush()
+    return gr
+
+
+@pytest_asyncio.fixture
+async def subscription(session: AsyncSession, user, game):
+    sub = Subscription(user_id=user.id, game_id=game.id)
+    session.add(sub)
+    await session.flush()
+    return sub
+
+
+@pytest_asyncio.fixture
+async def price_drop(session: AsyncSession, game):
+    drop = PriceDrop(game_id=game.id)
+    session.add(drop)
+    await session.flush()
+    return drop
+
+
+# ── notified_at ───────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_notified_at_set_after_send(
+    session, game_region, subscription, user_with_region, price_drop, mocker
+):
+    mocker.patch("worker.tasks.notify.AsyncSessionFactory", _factory(session))
+    mocker.patch("worker.tasks.notify.get_rates", AsyncMock(return_value={}))
+
+    await send_notifications(AsyncMock())
+
+    assert price_drop.notified_at is not None
+
+
+@pytest.mark.asyncio
+async def test_no_pending_drops_nothing_sent(session, mocker):
+    mocker.patch("worker.tasks.notify.AsyncSessionFactory", _factory(session))
+    mocker.patch("worker.tasks.notify.get_rates", AsyncMock(return_value={}))
+    bot = AsyncMock()
+
+    await send_notifications(bot)
+
+    bot.send_photo.assert_not_called()
+    bot.send_message.assert_not_called()
+
+
+# ── send_photo / send_message ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_send_photo_called_when_cover_url(
+    session, game, game_region, subscription, user_with_region, price_drop, mocker
+):
+    game.cover_url = COVER_URL
+    await session.flush()
+
+    mocker.patch("worker.tasks.notify.AsyncSessionFactory", _factory(session))
+    mocker.patch("worker.tasks.notify.get_rates", AsyncMock(return_value={}))
+    bot = AsyncMock()
+
+    await send_notifications(bot)
+
+    bot.send_photo.assert_called_once()
+    bot.send_message.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_send_message_called_when_no_cover(
+    session, game_region, subscription, user_with_region, price_drop, mocker
+):
+    mocker.patch("worker.tasks.notify.AsyncSessionFactory", _factory(session))
+    mocker.patch("worker.tasks.notify.get_rates", AsyncMock(return_value={}))
+    bot = AsyncMock()
+
+    await send_notifications(bot)
+
+    bot.send_message.assert_called_once()
+    bot.send_photo.assert_not_called()
+
+
+# ── region filtering ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_no_notification_when_user_has_no_matching_region(
+    session, game_region, user, game, price_drop, mocker
+):
+    # user has no regions — subscription exists but no tracked region matches game_region
+    session.add(Subscription(user_id=user.id, game_id=game.id))
+    await session.flush()
+
+    mocker.patch("worker.tasks.notify.AsyncSessionFactory", _factory(session))
+    mocker.patch("worker.tasks.notify.get_rates", AsyncMock(return_value={}))
+    bot = AsyncMock()
+
+    await send_notifications(bot)
+
+    bot.send_photo.assert_not_called()
+    bot.send_message.assert_not_called()

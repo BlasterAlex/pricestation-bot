@@ -2,7 +2,7 @@
 
 [sources.bot_logs]
 type = "docker_logs"
-include_containers = ["pricestation-bot"]
+include_containers = ["pricestation-bot", "pricestation-worker"]
 
 [sources.bot_metrics]
 type = "prometheus_scrape"
@@ -46,7 +46,7 @@ source = '''
 type = "filter"
 inputs = ["bot_metrics"]
 condition.type = "vrl"
-condition.source = '.name == "ps_api_requests_total" || .name == "ps_api_none_results_total" || .name == "bot_messages_failed_total" || .name == "region_sync_games_not_found_total"'
+condition.source = '.name == "ps_api_requests_total" || .name == "ps_api_none_results_total" || .name == "bot_messages_failed_total" || .name == "region_sync_games_not_found_total" || .name == "notifications_failed_total"'
 
 [transforms.detect_increases]
 type = "lua"

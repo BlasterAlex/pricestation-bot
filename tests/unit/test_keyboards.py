@@ -1,4 +1,4 @@
-from bot.keyboards.inline import game_card_keyboard, subscriptions_list_keyboard
+from bot.keyboards.inline import subscribe_keyboard, subscriptions_list_keyboard, unsubscribe_keyboard
 from services.ps_store import GameInfo
 
 
@@ -6,23 +6,18 @@ def _game(title: str = "Test Game", type_: str = "FULL_GAME") -> GameInfo:
     return GameInfo(title=title, platforms=["PS5"], type=type_, cover_url=None)
 
 
-def test_game_card_keyboard_subscribe_by_default():
-    kb = game_card_keyboard(0)
+def test_subscribe_keyboard():
+    kb = subscribe_keyboard(7)
     button = kb.inline_keyboard[0][0]
     assert button.text == "🔔 Subscribe"
-    assert button.callback_data == "subscribe:0"
+    assert button.callback_data == "subscribe:7"
 
 
-def test_game_card_keyboard_unsubscribe():
-    kb = game_card_keyboard(3, is_subscribed=True)
+def test_unsubscribe_keyboard():
+    kb = unsubscribe_keyboard(42)
     button = kb.inline_keyboard[0][0]
     assert button.text == "🔕 Unsubscribe"
-    assert button.callback_data == "unsubscribe:3"
-
-
-def test_game_card_keyboard_index_in_callback():
-    kb = game_card_keyboard(7)
-    assert kb.inline_keyboard[0][0].callback_data == "subscribe:7"
+    assert button.callback_data == "unsubscribe:42"
 
 
 # ── subscriptions_list_keyboard ───────────────────────────────────────────────

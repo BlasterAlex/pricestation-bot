@@ -84,7 +84,7 @@ def _game_header(game: GameInfo) -> list[str]:
 def _card_price_lines(
     prices: dict[str, RegionPrice],
     rates: dict[str, float] | None,
-    old_prices: dict[str, RegionPrice] | None = None,
+    old_prices: dict[str, float] | None = None,
 ) -> list[str]:
     usd_map = _usd_by_locale(prices, rates)
     cheapest = min(
@@ -114,13 +114,16 @@ def _card_price_lines(
             current = f"<b>{current}</b>"
         text = f"{flag} {current}"
 
-        old = (old_prices or {}).get(locale)
-        if old is not None and old.price is not None and old.currency is not None and old.price != rp.price:
-            old_usd = convert_to_usd(old.price, old.currency, rates) if rates else None
-            old_iso = PS_CURRENCY_MAP.get(old.currency, old.currency)
-            old_usd_str = f" (${old_usd:.2f})" if old_usd is not None and old_iso != "USD" else ""
-            arrow = "↓" if rp.price < old.price else "↑"
-            text += f"  {arrow} <s>{_format_price(old.price, old.currency)}{old_usd_str}</s>"
+        old_price = (old_prices or {}).get(locale)
+        if old_price is not None and old_price != rp.price:
+            # Skip when the game is on sale and old_price == base_price:
+            # the strikethrough base_price in the card already shows the pre-sale price.
+            if rp.base_price is None or abs(rp.base_price - old_price) > 0.001:
+                old_usd = convert_to_usd(old_price, rp.currency, rates) if rates else None
+                old_iso = PS_CURRENCY_MAP.get(rp.currency, rp.currency)
+                old_usd_str = f" (${old_usd:.2f})" if old_usd is not None and old_iso != "USD" else ""
+                arrow = "↓" if rp.price < old_price else "↑"
+                text += f"  {arrow} <s>{_format_price(old_price, rp.currency)}{old_usd_str}</s>"
 
         lines.append(text)
 
@@ -167,7 +170,7 @@ def format_game_card(
     game: GameInfo,
     prices: dict[str, RegionPrice],
     rates: dict[str, float] | None = None,
-    old_prices: dict[str, RegionPrice] | None = None,
+    old_prices: dict[str, float] | None = None,
     title: str = "",
     footer: str = "",
 ) -> str:

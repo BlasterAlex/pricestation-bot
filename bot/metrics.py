@@ -24,6 +24,10 @@ subscriptions_already_exists = Counter(
     "subscriptions_already_exists_total",
     "Subscribe attempts rejected because subscription already exists",
 )
+subscriptions_removed = Counter(
+    "subscriptions_removed_total",
+    "Subscriptions successfully removed",
+)
 
 bot_handler_errors = Counter(
     "bot_messages_failed_total",
