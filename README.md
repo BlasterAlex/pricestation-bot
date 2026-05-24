@@ -1,7 +1,7 @@
 # PriceStation Bot 🎮 💰
 
 <div align="center">
-  <img src="assets/logo.png" alt="PriceStation Bot" width="120"/>
+  <img src="assets/logo.png" alt="PriceStation Bot" width="200"/>
 
   [@PriceStationBot](http://t.me/PriceStationBot) · **Status: WIP**
 
