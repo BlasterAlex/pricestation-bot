@@ -31,6 +31,12 @@ jobs:
       - name: Extract coverage report
         if: always()
         run: docker cp test:/app/coverage.xml coverage.xml || true
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
       - name: Coverage comment
         if: github.event_name == 'pull_request'
         uses: MishaKav/pytest-coverage-comment@main

@@ -1,6 +1,15 @@
 # PriceStation Bot 🎮 💰
 
-[@PriceStationBot](http://t.me/PriceStationBot) · **Status: WIP**
+<div align="center">
+  <img src="assets/logo.png" alt="PriceStation Bot" width="120"/>
+
+  [@PriceStationBot](http://t.me/PriceStationBot) · **Status: WIP**
+
+  [![CI](https://github.com/BlasterAlex/pricestation-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/BlasterAlex/pricestation-bot/actions/workflows/ci.yml)
+  [![Coverage](https://codecov.io/gh/BlasterAlex/pricestation-bot/branch/main/graph/badge.svg)](https://codecov.io/gh/BlasterAlex/pricestation-bot)
+  ![Python](https://img.shields.io/badge/python-3.12-blue)
+  [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+</div>
 
 An automated Telegram bot designed to help gamers find the lowest prices for PlayStation games across different PSN regions
 
