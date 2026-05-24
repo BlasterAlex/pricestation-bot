@@ -210,7 +210,7 @@ async def test_is_subscribed_false(session: AsyncSession, user):
     assert result is None
 
 
-# ── unsubscribe ────────────────────────────────────────────────────
+# ── unsubscribe_from_game ────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_unsubscribe_removes_subscription(session: AsyncSession, user, region):
@@ -396,7 +396,7 @@ async def test_is_subscribed_true_via_suffix(session: AsyncSession, user, region
 
 @pytest.mark.asyncio
 async def test_unsubscribe_via_suffix(session: AsyncSession, user, region, region2):
-    """unsubscribe removes subscription found via suffix lookup."""
+    """unsubscribe_from_game removes subscription found via suffix lookup."""
     en_info = _make_game_info(title="Test Game Standard Edition PS5", ps_id_suffix="TESTGAME0000")
     es_info = _make_game_info(title="Edición Estándar Test Game PS5", ps_id_suffix="TESTGAME0000")
     en_price = _make_region_price(ps_id="UP0001-PPSA00001_00-TESTGAME0000")
