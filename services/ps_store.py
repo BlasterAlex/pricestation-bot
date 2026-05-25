@@ -295,11 +295,13 @@ def _outright_price(webctas: list[dict]) -> dict | None:
     return None
 
 
-# Searches PS Store by text query and returns purchasable games with their prices.
-# Free games (price=None after parsing) are excluded from results.
-# page_size controls how many PS Store results are fetched; default is 50.
-async def search_games(
-    query: str, region: str = "en-us", page_size: int = _GQL_SEARCH_PAGE_SIZE
+# Core search implementation — accepts a caller-supplied session so that
+# scripts running many concurrent requests can share a single connection pool.
+async def _search_games(
+    session: aiohttp.ClientSession,
+    query: str,
+    region: str = "en-us",
+    page_size: int = _GQL_SEARCH_PAGE_SIZE,
 ) -> list[tuple[GameInfo, RegionPrice]]:
     _, _, country = region.partition("-")
     params = urlencode({
@@ -317,18 +319,25 @@ async def search_games(
     headers = _gql_headers(region, "https://store.playstation.com/")
     words = [w.lower() for w in query.split() if w]
 
+    # Whole-word patterns — avoids substring false positives:
+    # e.g. "1" matching "11", "24" matching "2024", "v" matching "vr".
+    word_patterns = [re.compile(r"\b" + re.escape(w) + r"\b") for w in words]
+    # Whole-word "demo" check — skips demo listings that the PS Store sometimes
+    # classifies as FULL_GAME/GAME_BUNDLE (common in de-de region).
+    # \bdemo\b avoids false positives like "Demolition" or "Democracy".
+    _demo_re = re.compile(r"\bdemo\b")
+
     _t0 = time.monotonic()
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"{_GQL_URL}?{params}", headers=headers) as resp:
-            _status = resp.status
-            if resp.status != 200:
-                level = logging.WARNING if resp.status in _WARN_STATUSES else logging.ERROR
-                logger.log(level, "search_games: HTTP %d [query=%r region=%s]", resp.status, query, region)
-                ps_api_requests.labels(operation="search", status=str(_status)).inc()
-                ps_api_duration.labels(operation="search").observe(time.monotonic() - _t0)
-                ps_api_none_results.labels(operation="search").inc()
-                return []
-            data = await resp.json(content_type=None)
+    async with session.get(f"{_GQL_URL}?{params}", headers=headers) as resp:
+        _status = resp.status
+        if resp.status != 200:
+            level = logging.WARNING if resp.status in _WARN_STATUSES else logging.ERROR
+            logger.log(level, "search_games: HTTP %d [query=%r region=%s]", resp.status, query, region)
+            ps_api_requests.labels(operation="search", status=str(_status)).inc()
+            ps_api_duration.labels(operation="search").observe(time.monotonic() - _t0)
+            ps_api_none_results.labels(operation="search").inc()
+            return []
+        data = await resp.json(content_type=None)
     ps_api_requests.labels(operation="search", status="200").inc()
     ps_api_duration.labels(operation="search").observe(time.monotonic() - _t0)
 
@@ -342,15 +351,24 @@ async def search_games(
     for product in page.get("results", []):
         if product.get("storeDisplayClassification") not in GAME_TYPES:
             continue
-        if not all(w in product.get("name", "").lower() for w in words):
+        name_lower = product.get("name", "").lower()
+        if not all(p.search(name_lower) for p in word_patterns):
+            continue
+        if _demo_re.search(name_lower):
+            logger.debug(
+                "search_games: skipping demo listing [ps_id=%s name=%r region=%s]",
+                product["id"], product.get("name"), region,
+            )
             continue
         price_data = product.get("price") or {}
         price, currency, base_price, discount_text = _parse_str_price_data(price_data)
         if price is None:
-            if not price_data.get("isFree") and price_data.get("discountedPrice") not in _NO_PRICE_STRINGS:
-                logger.warning(
-                    "search_games: no price parsed [ps_id=%s region=%s raw=%r]",
-                    product["id"], region, price_data,
+            if not price_data.get("isFree"):
+                # Empty price object (delisted) or explicit "not available" string in any
+                # locale — both are expected, not actionable. Log at DEBUG only.
+                logger.debug(
+                    "search_games: no price — unavailable or delisted [ps_id=%s name=%r region=%s]",
+                    product["id"], product.get("name"), region,
                 )
             continue
         discount_end = _parse_end_time(price_data.get("endTime"))
@@ -361,6 +379,14 @@ async def search_games(
 
     logger.info("search_games: %d results [query=%r region=%s]", len(results), query, region)
     return results
+
+
+# Public wrapper — creates its own session so callers don't need to manage one.
+async def search_games(
+    query: str, region: str = "en-us", page_size: int = _GQL_SEARCH_PAGE_SIZE
+) -> list[tuple[GameInfo, RegionPrice]]:
+    async with aiohttp.ClientSession() as session:
+        return await _search_games(session, query, region, page_size)
 
 
 # Fetches full product data for a known ps_id in a specific region.
