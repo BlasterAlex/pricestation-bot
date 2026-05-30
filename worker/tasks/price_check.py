@@ -73,6 +73,7 @@ async def _check_game_region(session, gr: GameRegion) -> str:
     gr.current_price = new_price
     gr.base_price = region_price.base_price
     gr.discount_text = region_price.discount_text
+    gr.discount_end = region_price.discount_end
     gr.last_checked = datetime.now(timezone.utc)
 
     gr.game.title = game_info.title

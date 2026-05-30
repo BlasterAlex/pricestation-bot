@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
 
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,17 +30,6 @@ def _game_filter(composite_key: str, suffix: str | None):
     return f
 
 
-def _parse_discount_end(s: str | None) -> datetime | None:
-    if s is None:
-        return None
-    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-    return None
-
-
 def _make_game_region(game_id: int, region_id: int, rp: RegionPrice) -> GameRegion:
     return GameRegion(
         game_id=game_id,
@@ -50,7 +38,7 @@ def _make_game_region(game_id: int, region_id: int, rp: RegionPrice) -> GameRegi
         current_price=rp.price,
         base_price=rp.base_price,
         discount_text=rp.discount_text,
-        discount_end=_parse_discount_end(rp.discount_end),
+        discount_end=rp.discount_end,
     )
 
 
@@ -267,16 +255,13 @@ async def get_user_subscriptions_page(
         .where(GameRegion.game_id.in_(game_ids), User.telegram_id == telegram_id)
     )
     for gr, region in (await session.execute(gr_stmt)).all():
-        discount_end_str: str | None = None
-        if gr.discount_end is not None:
-            discount_end_str = gr.discount_end.strftime("%Y-%m-%d %H:%M")
         prices_map.setdefault(gr.game_id, {})[region.code] = RegionPrice(
             price=float(gr.current_price) if gr.current_price is not None else None,
             currency=region.currency,
             base_price=float(gr.base_price) if gr.base_price is not None else None,
             discount_text=gr.discount_text,
             ps_id=gr.ps_id,
-            discount_end=discount_end_str,
+            discount_end=gr.discount_end,
         )
 
     result: list[tuple[GameInfo, dict[str, RegionPrice]]] = []

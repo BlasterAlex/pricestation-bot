@@ -555,3 +555,74 @@ async def test_sync_passes_suffix_to_find_region_price(
     mock_find.assert_called_once()
     _, _, _, suffix = mock_find.call_args.args
     assert suffix == "TESTGAME0000"
+
+
+# ── unknown region codes ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_subscribe_skips_unknown_region_code_new_game(session: AsyncSession, user, region):
+    """Region code in prices dict that doesn't exist in DB is silently skipped."""
+    game_info = _make_game_info()
+    prices = {
+        region.code: _make_region_price(),
+        "zz-zz": _make_region_price(ps_id="ZZ0001-PPSA00001_00-TESTGAME"),
+    }
+
+    created = await subscribe_to_game(session, user, game_info, prices)
+
+    assert created is True
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
+    grs = (await session.scalars(select(GameRegion).where(GameRegion.game_id == game.id))).all()
+    assert len(grs) == 1
+    assert grs[0].region_id == region.id
+
+
+@pytest.mark.asyncio
+async def test_subscribe_skips_unknown_region_code_existing_game(
+    session: AsyncSession, user, region
+):
+    """Unknown region code is silently skipped when subscribing to an existing game."""
+    game_info = _make_game_info()
+    user2 = User(telegram_id=999999999, username="other")
+    session.add(user2)
+    await session.flush()
+    await subscribe_to_game(session, user2, game_info, {region.code: _make_region_price()})
+
+    prices = {
+        region.code: _make_region_price(),
+        "zz-zz": _make_region_price(ps_id="ZZ0001-PPSA00001_00-TESTGAME"),
+    }
+    created = await subscribe_to_game(session, user, game_info, prices)
+
+    assert created is True
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
+    grs = (await session.scalars(select(GameRegion).where(GameRegion.game_id == game.id))).all()
+    assert all(gr.region_id == region.id for gr in grs)
+
+
+# ── sync: get_game_info returns None ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_sync_get_game_info_none_skips_game_region(session: AsyncSession, user, region):
+    """get_game_info returning None → no game_region created for that game."""
+    eu_region = Region(code="de-de", name="Germany")
+    session.add(eu_region)
+    await session.flush()
+
+    game_info = _make_game_info()
+    prices = {region.code: _make_region_price(ps_id="EP0001-PPSA00001_00-TESTGAME")}
+    await subscribe_to_game(session, user, game_info, prices)
+
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
+
+    with patch("services.subscription.get_game_info", new=AsyncMock(return_value=None)):
+        await sync_subscriptions_for_new_region(session, user, eu_region)
+
+    gr = await session.scalar(
+        select(GameRegion).where(
+            GameRegion.game_id == game.id, GameRegion.region_id == eu_region.id
+        )
+    )
+    assert gr is None

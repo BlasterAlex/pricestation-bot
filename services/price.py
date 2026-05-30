@@ -1,7 +1,10 @@
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from config import settings
 from db.models import Game, GameRegion, PriceDrop, Subscription, UserRegion
 from db.models.user import User
 
@@ -29,9 +32,14 @@ async def get_game_regions_to_check(session: AsyncSession) -> list[GameRegion]:
 
 
 async def get_pending_drops(session: AsyncSession) -> list[PriceDrop]:
+    # Aggregation window: hold back fresh drops so regional price updates
+    # from the same sale (arriving in later check cycles) are included
+    # in a single notification rather than triggering separate ones.
+    aggregation_cutoff = datetime.now(timezone.utc) - timedelta(hours=settings.NOTIFY_AGGREGATION_HOURS)
     result = await session.execute(
         select(PriceDrop)
         .where(PriceDrop.notified_at.is_(None))
+        .where(PriceDrop.created_at < aggregation_cutoff)
         .options(
             selectinload(PriceDrop.game).options(
                 selectinload(Game.game_regions).selectinload(GameRegion.region),
