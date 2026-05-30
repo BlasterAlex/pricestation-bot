@@ -1,6 +1,16 @@
+from datetime import timezone
+
 import pytest
 
-from services.ps_store import GameInfo, RegionPrice, _ps_id_suffix, get_game_info, search_games
+from services.ps_store import (
+    GameInfo,
+    RegionPrice,
+    _parse_end_time,
+    _parse_price,
+    _ps_id_suffix,
+    get_game_info,
+    search_games,
+)
 
 # --- normalize_title ---
 
@@ -461,3 +471,187 @@ def test_ps_id_suffix_matches_across_regions():
         _ps_id_suffix("UP0006-PPSA20049_00-25STANDARDBUNDLE")
         == _ps_id_suffix("EP0006-PPSA20050_00-25STANDARDBUNDLE")
     )
+
+
+# --- _parse_price ---
+
+
+def test_parse_price_simple_usd():
+    assert _parse_price("$29.99") == (29.99, "$")
+
+
+def test_parse_price_no_currency():
+    assert _parse_price("29.99") == (29.99, None)
+
+
+def test_parse_price_suffix_currency():
+    assert _parse_price("29.99 UAH") == (29.99, "UAH")
+
+
+def test_parse_price_european_period_thousands_comma_decimal():
+    # "1.049,70" → comma is decimal separator → 1049.70
+    price, currency = _parse_price("TL 1.049,70")
+    assert price == 1049.70
+    assert currency == "TL"
+
+
+def test_parse_price_us_comma_thousands_period_decimal():
+    # "1,899.00" → period is decimal separator → 1899.00
+    price, currency = _parse_price("$1,899.00")
+    assert price == 1899.00
+    assert currency == "$"
+
+
+def test_parse_price_comma_as_decimal_two_digits():
+    # "466,78" → exactly 2 digits after comma → comma is decimal → 466.78
+    price, currency = _parse_price("Rs 466,78")
+    assert price == 466.78
+    assert currency == "Rs"
+
+
+def test_parse_price_comma_as_thousands_not_two_digits():
+    # "4,999" → 3 digits after comma → comma is thousands separator → 4999.0
+    price, currency = _parse_price("4,999")
+    assert price == 4999.0
+    assert currency is None
+
+
+def test_parse_price_unparseable_returns_none():
+    assert _parse_price("Free") == (None, None)
+
+
+def test_parse_price_empty_returns_none():
+    assert _parse_price("") == (None, None)
+
+
+# --- _parse_end_time ---
+
+
+def test_parse_end_time_none_returns_none():
+    assert _parse_end_time(None) is None
+
+
+def test_parse_end_time_ms_int():
+    # 1748901600000 ms → 1748901600 s
+    result = _parse_end_time(1748901600000)
+    assert result is not None
+    assert result.tzinfo == timezone.utc
+    assert int(result.timestamp()) == 1748901600
+
+
+def test_parse_end_time_ms_string():
+    # Same value as string → same result
+    assert _parse_end_time("1748901600000") == _parse_end_time(1748901600000)
+
+
+def test_parse_end_time_seconds_int():
+    # Value < 1e10 treated as seconds directly
+    result = _parse_end_time(1748901600)
+    assert result is not None
+    assert int(result.timestamp()) == 1748901600
+
+
+def test_parse_end_time_invalid_string_returns_none():
+    assert _parse_end_time("not-a-timestamp") is None
+
+
+def test_parse_price_value_error_returns_none():
+    # ".." passes the regex (only periods, no digits) but float("..") raises ValueError
+    assert _parse_price("..") == (None, None)
+
+
+# --- search_games: HTTP errors & empty data ---
+
+
+@pytest.fixture
+def make_error_store(mocker):
+    def _factory(status: int):
+        mock_resp = mocker.AsyncMock()
+        mock_resp.status = status
+        mock_resp.__aenter__ = mocker.AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = mocker.AsyncMock(return_value=False)
+        mock_session = mocker.AsyncMock()
+        mock_session.get = mocker.Mock(return_value=mock_resp)
+        mock_session.__aenter__ = mocker.AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = mocker.AsyncMock(return_value=False)
+        mocker.patch("services.ps_store.aiohttp.ClientSession", return_value=mock_session)
+    return _factory
+
+
+@pytest.mark.asyncio
+async def test_search_returns_empty_on_warn_http_status(make_error_store):
+    make_error_store(429)
+    assert await search_games("spider man") == []
+
+
+@pytest.mark.asyncio
+async def test_search_returns_empty_on_error_http_status(make_error_store):
+    make_error_store(500)
+    assert await search_games("spider man") == []
+
+
+@pytest.mark.asyncio
+async def test_search_returns_empty_when_no_universal_search_data(make_mock_store):
+    make_mock_store({"data": {}})
+    assert await search_games("spider man") == []
+
+
+@pytest.mark.asyncio
+async def test_search_demo_game_excluded(make_mock_store):
+    make_mock_store({"data": {"universalSearch": {"results": [
+        {
+            "__typename": "Product",
+            "id": "DEMO_GAME",
+            "name": "Spider Man Demo",
+            "platforms": ["PS5"],
+            "storeDisplayClassification": "FULL_GAME",
+            "price": {
+                "basePrice": "$0.00",
+                "discountedPrice": "$0.00",
+                "discountText": None,
+                "isFree": False,
+            },
+            "media": [],
+        }
+    ]}}})
+    assert await search_games("spider man") == []
+
+
+@pytest.mark.asyncio
+async def test_search_delisted_game_excluded(make_mock_store):
+    # Empty price object → _parse_str_price_data returns (None, None, None) → filtered
+    make_mock_store({"data": {"universalSearch": {"results": [
+        {
+            "__typename": "Product",
+            "id": "DELISTED_GAME",
+            "name": "Spider Man Delisted",
+            "platforms": ["PS5"],
+            "storeDisplayClassification": "FULL_GAME",
+            "price": {},
+            "media": [],
+        }
+    ]}}})
+    assert await search_games("spider man") == []
+
+
+# --- get_game_info: HTTP errors & missing product ---
+
+
+@pytest.mark.asyncio
+async def test_get_game_info_returns_none_on_http_error(make_error_store):
+    make_error_store(429)
+    assert await get_game_info(GAME_INFO_PS_ID) is None
+
+
+@pytest.mark.asyncio
+async def test_get_game_info_returns_none_when_product_not_in_concept(make_mock_store):
+    # concept.products has a different ID than what we asked for
+    make_mock_store({"data": {"productRetrieve": {"concept": {"products": [{
+        "id": "COMPLETELY-DIFFERENT-ID",
+        "name": "Other Game",
+        "platforms": ["PS5"],
+        "storeDisplayClassification": "FULL_GAME",
+        "media": [],
+        "webctas": [],
+    }]}}}})
+    assert await get_game_info(GAME_INFO_PS_ID) is None

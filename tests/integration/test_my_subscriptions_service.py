@@ -63,6 +63,19 @@ async def _make_game_region(
 
 # ── empty / count ─────────────────────────────────────────────────────────────
 
+
+@pytest.mark.asyncio
+async def test_page_beyond_results_returns_empty_list(session: AsyncSession, user, region, user_region):
+    """total > 0 but requested page is beyond available rows → returns (total, [])."""
+    game = await _make_game(session)
+    await _subscribe(session, user, game)
+
+    total, items = await get_user_subscriptions_page(session, user.telegram_id, page=1, page_size=1)
+
+    assert total == 1
+    assert items == []
+
+
 @pytest.mark.asyncio
 async def test_no_subscriptions_returns_empty(session: AsyncSession, user):
     total, items = await get_user_subscriptions_page(session, user.telegram_id, page=0, page_size=15)

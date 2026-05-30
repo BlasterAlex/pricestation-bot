@@ -7,6 +7,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import GameRegion, PriceDrop, Subscription
+from db.models.user import User
 from db.models.user_region import UserRegion
 from worker.tasks.notify import send_notifications
 
@@ -138,6 +139,82 @@ async def test_no_notification_when_user_has_no_matching_region(
 ):
     # user has no regions — subscription exists but no tracked region matches game_region
     session.add(Subscription(user_id=user.id, game_id=game.id))
+    await session.flush()
+
+    mocker.patch("worker.tasks.notify.AsyncSessionFactory", _factory(session))
+    mocker.patch("worker.tasks.notify.get_rates", AsyncMock(return_value={}))
+    bot = AsyncMock()
+
+    await send_notifications(bot)
+
+    bot.send_photo.assert_not_called()
+    bot.send_message.assert_not_called()
+
+
+# ── exception handling ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_notify_continues_after_failed_send(
+    session: AsyncSession, game, game_region, region_usd, mocker
+):
+    """If notify fails for one user, the next user is still notified and the drop is marked."""
+    user1 = User(telegram_id=111, username="user1")
+    user2 = User(telegram_id=222, username="user2")
+    session.add_all([user1, user2])
+    await session.flush()
+
+    for u in (user1, user2):
+        session.add(UserRegion(user_id=u.id, region_id=region_usd.id))
+        session.add(Subscription(user_id=u.id, game_id=game.id))
+
+    drop = PriceDrop(
+        game_id=game.id,
+        created_at=datetime.now(timezone.utc) - timedelta(hours=9),
+    )
+    session.add(drop)
+    await session.flush()
+
+    mocker.patch("worker.tasks.notify.AsyncSessionFactory", _factory(session))
+    mocker.patch("worker.tasks.notify.get_rates", AsyncMock(return_value={}))
+
+    calls = []
+
+    async def _notify(*_, **kwargs):
+        calls.append(kwargs["telegram_id"])
+        if kwargs["telegram_id"] == 111:
+            raise RuntimeError("Telegram API error")
+
+    mocker.patch("worker.tasks.notify.notify_price_drop", side_effect=_notify)
+
+    await send_notifications(AsyncMock())
+
+    assert set(calls) == {111, 222}
+    assert drop.notified_at is not None
+
+
+# ── current_price = None ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_no_notification_when_game_region_has_no_price(
+    session: AsyncSession, game, region_usd, user, mocker
+):
+    """GameRegion with current_price=None must not trigger a notification."""
+    gr = GameRegion(
+        game_id=game.id,
+        region_id=region_usd.id,
+        ps_id=PS_ID,
+        current_price=None,
+    )
+    session.add(gr)
+    session.add(UserRegion(user_id=user.id, region_id=region_usd.id))
+    session.add(Subscription(user_id=user.id, game_id=game.id))
+    drop = PriceDrop(
+        game_id=game.id,
+        created_at=datetime.now(timezone.utc) - timedelta(hours=9),
+    )
+    session.add(drop)
     await session.flush()
 
     mocker.patch("worker.tasks.notify.AsyncSessionFactory", _factory(session))

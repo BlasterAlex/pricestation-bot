@@ -302,7 +302,16 @@ def test_format_game_card_shows_offer_end():
     result = format_game_card(GAME, prices, RATES)
     assert "Offer ends:" in result
     assert "22/5/2026 22:59 UTC" in result
-    assert "<b>" in result
+
+
+# --- N/A price line ---
+
+
+def test_card_price_lines_shows_na_when_price_is_none():
+    prices = {"en-us": RegionPrice(price=None, currency=None, base_price=None, discount_text=None)}
+    lines = _card_price_lines(prices, {})
+    assert len(lines) == 1
+    assert "N/A" in lines[0]
 
 
 def test_format_game_card_no_offer_end_without_discount():

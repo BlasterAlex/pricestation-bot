@@ -3,7 +3,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from bot.handlers.search import _do_search, on_game_select
+from bot.handlers.search import _do_search, cmd_search, on_game_select, on_search_query
+from bot.states.subscription import SearchForm
 from services.ps_store import GameInfo, RegionPrice, best_ps_id
 
 UP_ID = "UP9000-PPSA03016_00-GAME"
@@ -332,6 +333,110 @@ async def test_on_game_select_skips_state_update_when_no_discount_end(mocker, se
     await on_game_select(_make_callback(0), state, AsyncMock())
 
     state.update_data.assert_not_called()
+
+
+# --- _do_search: no regions ---
+
+
+@pytest.mark.asyncio
+async def test_do_search_no_regions_answers_with_hint(mocker, common_mocks):
+    mocker.patch("bot.handlers.search.get_user_regions", new_callable=AsyncMock, return_value=[])
+    msg = _make_message()
+
+    await _do_search(msg, AsyncMock(), AsyncMock(), "god of war")
+
+    msg.answer.assert_called_once()
+    assert "region" in msg.answer.call_args.args[0].lower()
+
+
+# --- cmd_search ---
+
+
+@pytest.mark.asyncio
+async def test_cmd_search_without_query_sets_fsm_state(mocker):
+    msg = AsyncMock()
+    msg.text = "/search"
+    state = AsyncMock()
+
+    await cmd_search(msg, state, AsyncMock())
+
+    state.set_state.assert_called_once_with(SearchForm.waiting_for_query)
+    msg.answer.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_cmd_search_with_query_calls_do_search(mocker, common_mocks):
+    mocker.patch("bot.handlers.search.get_user_regions", new_callable=AsyncMock, return_value=[])
+    msg = AsyncMock()
+    msg.text = "/search god of war"
+    msg.from_user = MagicMock(id=1, username="user")
+    state = AsyncMock()
+
+    await cmd_search(msg, state, AsyncMock())
+
+    # _do_search called → no regions → answers with hint
+    msg.answer.assert_called_once()
+    state.set_state.assert_not_called()
+
+
+# --- on_search_query ---
+
+
+@pytest.mark.asyncio
+async def test_on_search_query_delegates_to_do_search(mocker, common_mocks):
+    mocker.patch("bot.handlers.search.get_user_regions", new_callable=AsyncMock, return_value=[])
+    msg = _make_message()
+    msg.text = "  god of war  "
+
+    await on_search_query(msg, AsyncMock(), AsyncMock())
+
+    msg.answer.assert_called_once()  # no regions → hint message
+
+
+@pytest.mark.asyncio
+async def test_on_search_query_ignores_empty_text(mocker):
+    mock_do = mocker.patch("bot.handlers.search._do_search", new_callable=AsyncMock)
+    msg = AsyncMock()
+    msg.text = "   "
+
+    await on_search_query(msg, AsyncMock(), AsyncMock())
+
+    mock_do.assert_not_called()
+
+
+# --- on_game_select: edge cases ---
+
+
+@pytest.mark.asyncio
+async def test_on_game_select_out_of_bounds_answers_not_found(mocker, select_mocks):
+    state = AsyncMock()
+    state.get_data = AsyncMock(return_value={"entries": [], "rates": {}})
+    cb = _make_callback(5)
+
+    await on_game_select(cb, state, AsyncMock())
+
+    cb.message.answer.assert_called_once()
+    assert "not found" in cb.message.answer.call_args.args[0].lower()
+
+
+@pytest.mark.asyncio
+async def test_on_game_select_sends_photo_when_cover_url_set(mocker, select_mocks):
+    game = GameInfo(
+        title="Test Game", platforms=["PS5"], type="FULL_GAME",
+        cover_url="https://example.com/cover.jpg",
+    )
+    rp = RegionPrice(price=29.99, currency="€", base_price=None, discount_text=None, ps_id=EP_ID)
+    entry = {"game": game.to_dict(), "prices": {"en-gb": rp.to_dict()}}
+
+    state = AsyncMock()
+    state.get_data = AsyncMock(return_value={"entries": [entry], "rates": {}})
+    mocker.patch("bot.handlers.search.get_game_info", new_callable=AsyncMock, return_value=(game, rp))
+
+    cb = _make_callback(0)
+    await on_game_select(cb, state, AsyncMock())
+
+    cb.message.answer_photo.assert_called_once()
+    cb.message.answer.assert_not_called()
 
 
 @pytest.mark.asyncio

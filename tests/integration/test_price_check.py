@@ -1,3 +1,6 @@
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import select
@@ -5,7 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import GameRegion, PriceDrop, Subscription
 from services.ps_store import GameInfo, RegionPrice
-from worker.tasks.price_check import _check_game_region
+from worker.tasks.price_check import _check_game_region, check_prices
+
+
+def _factory(session):
+    @asynccontextmanager
+    async def _ctx():
+        yield session
+    return lambda: _ctx()
 
 PS_ID = "EP0001-CUSA00001_00-TESTGAME"
 
@@ -153,3 +163,59 @@ async def test_last_checked_updated(session, game_region, mocker):
     mocker.patch("worker.tasks.price_check.get_game_info", return_value=(_GAME_INFO, _region_price(49.99)))
     await _check_game_region(session, game_region)
     assert game_region.last_checked is not None
+
+
+# ── check_prices orchestrator ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_check_prices_calls_check_for_each_region(session, game_region, mocker):
+    mocker.patch("worker.tasks.price_check.AsyncSessionFactory", _factory(session))
+    mocker.patch(
+        "worker.tasks.price_check.price.get_game_regions_to_check",
+        AsyncMock(return_value=[game_region]),
+    )
+    mock_check = mocker.patch(
+        "worker.tasks.price_check._check_game_region",
+        AsyncMock(return_value="unchanged"),
+    )
+
+    await check_prices()
+
+    mock_check.assert_called_once()
+    _, called_gr = mock_check.call_args.args
+    assert called_gr is game_region
+
+
+@pytest.mark.asyncio
+async def test_check_prices_no_regions_does_not_crash(session, mocker):
+    mocker.patch("worker.tasks.price_check.AsyncSessionFactory", _factory(session))
+    mocker.patch(
+        "worker.tasks.price_check.price.get_game_regions_to_check",
+        AsyncMock(return_value=[]),
+    )
+    mock_check = mocker.patch(
+        "worker.tasks.price_check._check_game_region",
+        AsyncMock(return_value="unchanged"),
+    )
+
+    await check_prices()
+
+    mock_check.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_check_prices_processes_multiple_regions(session, game_region, mocker):
+    mocker.patch("worker.tasks.price_check.AsyncSessionFactory", _factory(session))
+    mocker.patch(
+        "worker.tasks.price_check.price.get_game_regions_to_check",
+        AsyncMock(return_value=[game_region, game_region, game_region]),
+    )
+    mock_check = mocker.patch(
+        "worker.tasks.price_check._check_game_region",
+        AsyncMock(side_effect=["dropped", "unchanged", "skipped"]),
+    )
+
+    await check_prices()
+
+    assert mock_check.call_count == 3
