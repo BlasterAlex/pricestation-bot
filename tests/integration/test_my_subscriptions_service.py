@@ -207,7 +207,7 @@ async def test_discount_end_formatted_as_string(session: AsyncSession, user, reg
 
     _, items = await get_user_subscriptions_page(session, user.telegram_id, page=0, page_size=15)
     _, prices = items[0]
-    assert prices[region.code].discount_end == "2025-12-31 18:00"
+    assert prices[region.code].discount_end == datetime(2025, 12, 31, 18, 0, tzinfo=timezone.utc)
 
 
 # ── GameInfo fields ───────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -58,7 +59,10 @@ async def subscription(session: AsyncSession, user, game):
 
 @pytest_asyncio.fixture
 async def price_drop(session: AsyncSession, game):
-    drop = PriceDrop(game_id=game.id)
+    drop = PriceDrop(
+        game_id=game.id,
+        created_at=datetime.now(timezone.utc) - timedelta(hours=9),
+    )
     session.add(drop)
     await session.flush()
     return drop

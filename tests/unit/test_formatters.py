@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import datetime, timezone
 
 from bot.formatters import (
     _card_price_lines,
@@ -259,19 +260,21 @@ def test_format_game_card_with_old_prices():
 # --- _offer_end_line ---
 
 def test_offer_end_line_shown_when_discounted():
-    prices = {"en-us": RegionPrice(19.99, "$", 39.99, "-50%", discount_end="2026-05-22 22:59")}
+    end = datetime(2026, 5, 22, 22, 59, tzinfo=timezone.utc)
+    prices = {"en-us": RegionPrice(19.99, "$", 39.99, "-50%", discount_end=end)}
     line = _offer_end_line(prices)
     assert line == "22/5/2026 22:59 UTC"
 
 
 def test_offer_end_line_date_only_fallback():
-    prices = {"en-us": RegionPrice(19.99, "$", 39.99, "-50%", discount_end="2026-05-22")}
+    prices = {"en-us": RegionPrice(19.99, "$", 39.99, "-50%", discount_end=datetime(2026, 5, 22, tzinfo=timezone.utc))}
     line = _offer_end_line(prices)
     assert line == "22/5/2026 UTC"
 
 
 def test_offer_end_line_none_when_no_discount():
-    prices = {"en-us": RegionPrice(39.99, "$", None, None, discount_end="2026-05-22 22:59")}
+    end = datetime(2026, 5, 22, 22, 59, tzinfo=timezone.utc)
+    prices = {"en-us": RegionPrice(39.99, "$", None, None, discount_end=end)}
     line = _offer_end_line(prices)
     assert line is None
 
@@ -283,16 +286,19 @@ def test_offer_end_line_none_when_no_end_date():
 
 
 def test_offer_end_takes_first_discounted_region():
+    end_us = datetime(2026, 5, 22, 22, 59, tzinfo=timezone.utc)
+    end_gb = datetime(2026, 5, 30, 22, 59, tzinfo=timezone.utc)
     prices = {
-        "en-us": RegionPrice(19.99, "$", None, None, discount_end="2026-05-22 22:59"),
-        "en-gb": RegionPrice(14.99, "£", 29.99, "-50%", discount_end="2026-05-30 22:59"),
+        "en-us": RegionPrice(19.99, "$", None, None, discount_end=end_us),
+        "en-gb": RegionPrice(14.99, "£", 29.99, "-50%", discount_end=end_gb),
     }
     line = _offer_end_line(prices)
     assert line == "30/5/2026 22:59 UTC"
 
 
 def test_format_game_card_shows_offer_end():
-    prices = {"en-us": RegionPrice(19.99, "$", 39.99, "-50%", discount_end="2026-05-22 22:59")}
+    end = datetime(2026, 5, 22, 22, 59, tzinfo=timezone.utc)
+    prices = {"en-us": RegionPrice(19.99, "$", 39.99, "-50%", discount_end=end)}
     result = format_game_card(GAME, prices, RATES)
     assert "Offer ends:" in result
     assert "22/5/2026 22:59 UTC" in result

@@ -1,4 +1,3 @@
-from datetime import datetime
 
 from services.currency import PS_CURRENCY_MAP, convert_to_usd
 from services.ps_store import GameInfo, RegionPrice
@@ -153,16 +152,10 @@ def format_game_list(
 def _offer_end_line(prices: dict[str, RegionPrice]) -> str | None:
     for rp in prices.values():
         if rp.discount_end and rp.base_price is not None:
-            try:
-                d = datetime.strptime(rp.discount_end, "%Y-%m-%d %H:%M")
+            d = rp.discount_end
+            if d.hour or d.minute:
                 return f"{d.day}/{d.month}/{d.year} {d.strftime('%H:%M')} UTC"
-            except ValueError:
-                pass
-            try:
-                d = datetime.strptime(rp.discount_end, "%Y-%m-%d")
-                return f"{d.day}/{d.month}/{d.year} UTC"
-            except (ValueError, AttributeError):
-                return f"{rp.discount_end}"
+            return f"{d.day}/{d.month}/{d.year} UTC"
     return None
 
 

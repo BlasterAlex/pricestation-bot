@@ -3,6 +3,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import aiohttp
@@ -47,7 +48,7 @@ class RegionPrice:
     base_price: float | None
     discount_text: str | None
     ps_id: str | None = None
-    discount_end: str | None = None
+    discount_end: datetime | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -155,15 +156,19 @@ def _canonical_currency(currency: str | None) -> str | None:
 _NO_PRICE_STRINGS = {"Free", "Unavailable"}
 
 
-def _parse_str_price_data(price_data: dict) -> tuple[float | None, str | None, float | None, str | None]:
-    """Parse string-format price data from search results → (price, currency, base_price, discount_text)."""
+def _is_free_game(price_data: dict) -> bool:
+    """True when the product is truly free with no paid option (should be skipped)."""
+    return (
+        price_data.get("isFree", False)
+        and price_data.get("discountedPrice") == "Free"
+        and price_data.get("basePrice", "Free") in (None, "", "Free")
+    )
+
+
+def _parse_str_price_data(price_data: dict) -> tuple[float | None, str | None, float | None]:
+    """Parse string-format price data from search results → (price, currency, base_price)."""
     discounted_str = price_data.get("discountedPrice")
     base_str = price_data.get("basePrice")
-    is_free = price_data.get("isFree", False)
-
-    # "Free" in discountedPrice with isFree=False means free trial — use basePrice as the real price.
-    if is_free and discounted_str == "Free" and (not base_str or base_str == "Free"):
-        return None, None, None, None
 
     price, currency = (
         _parse_price(discounted_str)
@@ -177,12 +182,12 @@ def _parse_str_price_data(price_data: dict) -> tuple[float | None, str | None, f
     )
 
     if price is None:
-        return base_price, _canonical_currency(base_currency), None, price_data.get("discountText")
+        return base_price, _canonical_currency(base_currency), None
 
     if base_price == price:
         base_price = None
 
-    return price, _canonical_currency(currency), base_price, price_data.get("discountText")
+    return price, _canonical_currency(currency), base_price
 
 
 def _ps_id_suffix(ps_id: str | None) -> str | None:
@@ -209,18 +214,15 @@ def _extract_cover(media: list[dict]) -> str | None:
     return None
 
 
-def _parse_end_time(value: int | str | None) -> str | None:
-    """Parse PS Store endTime (Unix ms as int or numeric string) → 'YYYY-MM-DD HH:MM' (UTC)."""
+def _parse_end_time(value: int | str | None) -> datetime | None:
+    """Parse PS Store endTime (Unix ms as int or numeric string) → datetime (UTC)."""
     if value is None:
         return None
     try:
-        from datetime import datetime, timezone
         ms = int(value) if isinstance(value, str) and value.isdigit() else value
         if isinstance(ms, (int, float)):
             ts = ms / 1000 if ms > 1e10 else ms
-            return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
-        if isinstance(value, str) and len(value) >= 10:
-            return value[:16]
+            return datetime.fromtimestamp(ts, tz=timezone.utc)
     except Exception:
         pass
     return None
@@ -242,7 +244,7 @@ def _make_region_price(
     base_price: float | None,
     discount_text: str | None,
     ps_id: str | None = None,
-    discount_end: str | None = None,
+    discount_end: datetime | None = None,
 ) -> RegionPrice:
     return RegionPrice(
         price=price,
@@ -361,16 +363,19 @@ async def _search_games(
             )
             continue
         price_data = product.get("price") or {}
-        price, currency, base_price, discount_text = _parse_str_price_data(price_data)
-        if price is None:
-            if not price_data.get("isFree"):
-                # Empty price object (delisted) or explicit "not available" string in any
-                # locale — both are expected, not actionable. Log at DEBUG only.
-                logger.debug(
-                    "search_games: no price — unavailable or delisted [ps_id=%s name=%r region=%s]",
-                    product["id"], product.get("name"), region,
-                )
+        if _is_free_game(price_data):
             continue
+        price, currency, base_price = _parse_str_price_data(price_data)
+        if price is None:
+            # Empty price object (delisted) or explicit "not available" string in any
+            # locale — both are expected, not actionable. Log at DEBUG only.
+            logger.debug(
+                "search_games: no price — unavailable or delisted [ps_id=%s name=%r region=%s]",
+                product["id"], product.get("name"), region,
+            )
+            continue
+
+        discount_text = price_data.get("discountText")
         discount_end = _parse_end_time(price_data.get("endTime"))
         results.append((
             _make_game_info(product),

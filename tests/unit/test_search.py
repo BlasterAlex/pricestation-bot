@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -275,7 +276,7 @@ def _make_callback(index: int, user_id: int = 1) -> AsyncMock:
     return cb
 
 
-def _make_entry(ps_id: str, base_price: float | None = None, discount_end: str | None = None) -> dict:
+def _make_entry(ps_id: str, base_price: float | None = None, discount_end: datetime | None = None) -> dict:
     game = GameInfo(title="Test Game", platforms=["PS5"], type="FULL_GAME", cover_url=None)
     rp = RegionPrice(price=29.99, currency="€", base_price=base_price,
                      discount_text="-40%" if base_price else None, ps_id=ps_id, discount_end=discount_end)
@@ -301,15 +302,18 @@ async def test_on_game_select_saves_discount_end_to_state(mocker, select_mocks):
     state.get_data = AsyncMock(return_value={"entries": [entry], "rates": {}})
     state.update_data = AsyncMock(side_effect=lambda **kw: captured.update(kw))
 
-    info_rp = RegionPrice(price=29.99, currency="€", base_price=49.99,
-                          discount_text="-40%", ps_id=EP_ID, discount_end="2025-06-01 23:59")
+    end = datetime(2025, 6, 1, 23, 59, tzinfo=timezone.utc)
+    info_rp = RegionPrice(
+        price=29.99, currency="€", base_price=49.99,
+        discount_text="-40%", ps_id=EP_ID, discount_end=end,
+    )
     mocker.patch("bot.handlers.search.get_game_info",
                  new_callable=AsyncMock, return_value=(MagicMock(), info_rp))
 
     await on_game_select(_make_callback(0), state, AsyncMock())
 
     assert "entries" in captured
-    assert captured["entries"][0]["prices"]["en-gb"]["discount_end"] == "2025-06-01 23:59"
+    assert captured["entries"][0]["prices"]["en-gb"]["discount_end"] == end
 
 
 @pytest.mark.asyncio
