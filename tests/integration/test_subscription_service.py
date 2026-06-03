@@ -213,7 +213,10 @@ async def test_subscribe_updates_title_from_en_us_region(session: AsyncSession, 
     localized = _make_game_info(title="Набір геймера")
     canonical = _make_game_info(title="Gamer Bundle")
     prices_localized = {region.code: _make_region_price(ps_id="EP0001")}
-    prices_canonical = {region.code: _make_region_price(ps_id="EP0001"), region2.code: _make_region_price(ps_id="UP0001")}
+    prices_canonical = {
+        region.code: _make_region_price(ps_id="EP0001"),
+        region2.code: _make_region_price(ps_id="UP0001"),
+    }
 
     user2 = User(telegram_id=999999999, username="other")
     session.add(user2)
@@ -232,7 +235,10 @@ async def test_subscribe_keeps_ascii_title_even_with_en_us_region(session: Async
     ascii_game = _make_game_info(title="Test Game")
     localized = _make_game_info(title="Набір Test Game")
     prices_ascii = {region.code: _make_region_price(ps_id="EP0001")}
-    prices_localized = {region.code: _make_region_price(ps_id="EP0001"), region2.code: _make_region_price(ps_id="UP0001")}
+    prices_localized = {
+        region.code: _make_region_price(ps_id="EP0001"),
+        region2.code: _make_region_price(ps_id="UP0001"),
+    }
 
     user2 = User(telegram_id=999999999, username="other")
     session.add(user2)
