@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert
 from db.models import GameRegion, PriceDrop
 from db.session import AsyncSessionFactory
 from services import price
-from services.ps_store import get_game_info
+from services.ps_store import get_game_info, is_effectively_ascii
 from worker.metrics import (
     price_check_duration,
     price_check_last_run,
@@ -76,7 +76,10 @@ async def _check_game_region(session, gr: GameRegion) -> str:
     gr.discount_end = region_price.discount_end
     gr.last_checked = datetime.now(timezone.utc)
 
-    gr.game.title = game_info.title
+    # Only update title if the new one is effectively ASCII — prevents localized
+    # titles from regions like uk-ua from overwriting already-stored ASCII titles.
+    if is_effectively_ascii(game_info.title):
+        gr.game.title = game_info.title
     gr.game.cover_url = game_info.cover_url
     gr.game.game_type = game_info.type
     gr.game.platforms = game_info.platforms
