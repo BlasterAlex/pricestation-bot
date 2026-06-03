@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +21,13 @@ from db.models.user_region import UserRegion
 from services.ps_store import GameInfo, RegionPrice, best_ps_id, get_game_info, search_games
 
 logger = logging.getLogger(__name__)
+
+_TRADEMARK_RE = re.compile(r"[™®©]")
+
+
+def _is_effectively_ascii(title: str) -> bool:
+    """Return True if the title is ASCII after stripping trademark/copyright symbols."""
+    return _TRADEMARK_RE.sub("", title).isascii()
 
 
 def _game_filter(composite_key: str, suffix: str | None):
@@ -117,8 +125,12 @@ async def subscribe_to_game(
         subscriptions_already_exists.inc()
         return False
 
-    # Prefer ASCII title (same rule as in search merge: localized prefixes like "Набір" lose to ASCII)
-    if game_info.title.isascii() and not game.title.isascii():
+    # Prefer effectively-ASCII or canonical (en-us) title over non-ASCII stored title.
+    # Strip trademark symbols (™, ®, ©) before the ASCII check so titles like
+    # "Spider-Man™" are treated as ASCII and can replace non-ASCII stored titles.
+    new_is_ascii = _is_effectively_ascii(game_info.title)
+    stored_is_ascii = _is_effectively_ascii(game.title)
+    if not stored_is_ascii and game_info.title != game.title and (new_is_ascii or "en-us" in prices):
         logger.info("updating title for game_id=%d: %r -> %r", game.id, game.title, game_info.title)
         game.title = game_info.title
 

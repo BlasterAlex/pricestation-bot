@@ -189,6 +189,62 @@ async def test_subscribe_keeps_title_if_new_is_non_ascii(session: AsyncSession, 
     assert game.title == "Test Game"
 
 
+@pytest.mark.asyncio
+async def test_subscribe_updates_title_when_new_has_trademark_symbols(session: AsyncSession, user, region):
+    """Title with ™/® is effectively ASCII and should replace a non-ASCII stored title."""
+    localized = _make_game_info(title="Набір Test Game")
+    trademark = _make_game_info(title="Test Game™")
+    prices = {region.code: _make_region_price()}
+
+    user2 = User(telegram_id=999999999, username="other")
+    session.add(user2)
+    await session.flush()
+    await subscribe_to_game(session, user2, localized, prices)
+
+    await subscribe_to_game(session, user, trademark, prices)
+
+    game = await session.scalar(select(Game).where(Game.composite_key == trademark.composite_key))
+    assert game.title == "Test Game™"
+
+
+@pytest.mark.asyncio
+async def test_subscribe_updates_title_from_en_us_region(session: AsyncSession, user, region, region2):
+    """When en-us is in the subscription's regions, non-ASCII stored title is updated to the canonical title."""
+    localized = _make_game_info(title="Набір геймера")
+    canonical = _make_game_info(title="Gamer Bundle")
+    prices_localized = {region.code: _make_region_price(ps_id="EP0001")}
+    prices_canonical = {region.code: _make_region_price(ps_id="EP0001"), region2.code: _make_region_price(ps_id="UP0001")}
+
+    user2 = User(telegram_id=999999999, username="other")
+    session.add(user2)
+    await session.flush()
+    await subscribe_to_game(session, user2, localized, prices_localized)
+
+    await subscribe_to_game(session, user, canonical, prices_canonical)
+
+    game = await session.scalar(select(Game).where(Game.composite_key == canonical.composite_key))
+    assert game.title == "Gamer Bundle"
+
+
+@pytest.mark.asyncio
+async def test_subscribe_keeps_ascii_title_even_with_en_us_region(session: AsyncSession, user, region, region2):
+    """ASCII stored title is not replaced when new title is non-ASCII, even if en-us is in prices."""
+    ascii_game = _make_game_info(title="Test Game")
+    localized = _make_game_info(title="Набір Test Game")
+    prices_ascii = {region.code: _make_region_price(ps_id="EP0001")}
+    prices_localized = {region.code: _make_region_price(ps_id="EP0001"), region2.code: _make_region_price(ps_id="UP0001")}
+
+    user2 = User(telegram_id=999999999, username="other")
+    session.add(user2)
+    await session.flush()
+    await subscribe_to_game(session, user2, ascii_game, prices_ascii)
+
+    await subscribe_to_game(session, user, localized, prices_localized)
+
+    game = await session.scalar(select(Game).where(Game.composite_key == ascii_game.composite_key))
+    assert game.title == "Test Game"
+
+
 
 # ── is_subscribed ─────────────────────────────────────────────────────────────
 
