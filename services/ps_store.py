@@ -17,6 +17,13 @@ logger = logging.getLogger(__name__)
 # Add a currency here if displayed price is 100x too small (e.g. Rs 49.99 instead of Rs 4999).
 _WHOLE_UNIT_CURRENCIES = {"INR", "JPY", "KRW", "CLP", "COP"}
 
+_TRADEMARK_RE = re.compile(r"[™®©]")
+
+
+def is_effectively_ascii(title: str) -> bool:
+    """Return True if the title is ASCII after stripping trademark/copyright symbols."""
+    return _TRADEMARK_RE.sub("", title).isascii()
+
 STORE_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

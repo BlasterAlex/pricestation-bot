@@ -17,7 +17,7 @@ from db.models.region import Region
 from db.models.subscription import Subscription
 from db.models.user import User
 from db.models.user_region import UserRegion
-from services.ps_store import GameInfo, RegionPrice, best_ps_id, get_game_info, search_games
+from services.ps_store import GameInfo, RegionPrice, best_ps_id, get_game_info, is_effectively_ascii, search_games
 
 logger = logging.getLogger(__name__)
 
@@ -117,8 +117,12 @@ async def subscribe_to_game(
         subscriptions_already_exists.inc()
         return False
 
-    # Prefer ASCII title (same rule as in search merge: localized prefixes like "Набір" lose to ASCII)
-    if game_info.title.isascii() and not game.title.isascii():
+    # Prefer effectively-ASCII or canonical (en-us) title over non-ASCII stored title.
+    # Strip trademark symbols (™, ®, ©) before the ASCII check so titles like
+    # "Spider-Man™" are treated as ASCII and can replace non-ASCII stored titles.
+    new_is_ascii = is_effectively_ascii(game_info.title)
+    stored_is_ascii = is_effectively_ascii(game.title)
+    if not stored_is_ascii and game_info.title != game.title and (new_is_ascii or "en-us" in prices):
         logger.info("updating title for game_id=%d: %r -> %r", game.id, game.title, game_info.title)
         game.title = game_info.title
 

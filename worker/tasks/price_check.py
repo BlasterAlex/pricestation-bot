@@ -76,11 +76,6 @@ async def _check_game_region(session, gr: GameRegion) -> str:
     gr.discount_end = region_price.discount_end
     gr.last_checked = datetime.now(timezone.utc)
 
-    gr.game.title = game_info.title
-    gr.game.cover_url = game_info.cover_url
-    gr.game.game_type = game_info.type
-    gr.game.platforms = game_info.platforms
-
     if price_dropped:
         await session.execute(
             insert(PriceDrop)
