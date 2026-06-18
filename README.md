@@ -17,17 +17,18 @@ An automated Telegram bot designed to help gamers find the lowest prices for Pla
 - **Global Search:** Compare prices across multiple regions (TR, US, UA, PL, etc.) in one click
 - **Price Tracking:** Subscribe to your favorite games
 - **Smart Notifications:** Get alerts when prices drop or a sale starts
-- **Currency Conversion:** View all prices in your local currency
+- **Currency Conversion:** View all prices converted to your preferred currency (USD by default)
 
 ### Commands
 
-| Command              | Description                                                      |
-|----------------------|------------------------------------------------------------------|
-| `/start`             | Welcome message                                                  |
-| `/add_region`        | Search and add a PS Store region to track                        |
-| `/my_regions`        | Manage your tracked regions                                      |
-| `/search`            | Search for a game and compare prices across your tracked regions |
-| `/my_subscriptions`  | View your subscribed games with current prices                   |
+| Command             | Description                                                      |
+|---------------------|------------------------------------------------------------------|
+| `/start`            | Welcome message                                                  |
+| `/add_region`       | Search and add a PS Store region to track                        |
+| `/my_regions`       | Manage your tracked regions                                      |
+| `/search`           | Search for a game and compare prices across your tracked regions |
+| `/my_subscriptions` | View your subscribed games with current prices                   |
+| `/currency`         | View or change your display currency                             |
 
 ---
 
@@ -151,9 +152,10 @@ Migrations run automatically before `bot` and `worker` start.
 
 ## Documentation
 
-| Document                                             | Description                                                 |
-|------------------------------------------------------|-------------------------------------------------------------|
-| [`worker/README.md`](worker/README.md)               | Worker jobs: price check, notifications, aggregation window |
-| [`db/models/README.md`](db/models/README.md)         | Database schema: tables, relationships, key constraints     |
-| [`deploy/vector/README.md`](deploy/vector/README.md) | Vector alerting pipeline: sources, transforms, metrics      |
-| [`research/README.md`](research/README.md)           | PS Store search grouping research                           |
+| Document                                             | Description                                                  |
+|------------------------------------------------------|--------------------------------------------------------------|
+| [`worker/README.md`](worker/README.md)               | Worker jobs: price check, notifications, aggregation window  |
+| [`db/models/README.md`](db/models/README.md)         | Database schema: tables, relationships, key constraints      |
+| [`services/README.md`](services/README.md)           | Services: currency conversion logic, exchange rates, display |
+| [`deploy/vector/README.md`](deploy/vector/README.md) | Vector alerting pipeline: sources, transforms, metrics       |
+| [`research/README.md`](research/README.md)           | PS Store search grouping research                            |

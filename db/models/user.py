@@ -14,6 +14,7 @@ class User(Base):
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
     username: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    preferred_currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
     subscriptions: Mapped[list["Subscription"]] = relationship(back_populates="user")
     regions: Mapped[list["Region"]] = relationship(

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.formatters import format_game_card, format_game_list
 from bot.keyboards.inline import search_results_keyboard, subscribe_keyboard, unsubscribe_keyboard
 from bot.states.subscription import SearchForm
-from services.currency import get_rates
+from services.currency import DEFAULT_BASE_CURRENCY, get_rates
 from services.ps_store import GameInfo, RegionPrice, best_ps_id, get_game_info, search_games
 from services.region import get_user_regions
 from services.subscription import is_subscribed
@@ -181,8 +181,10 @@ async def _do_search(message: Message, state: FSMContext, session: AsyncSession,
         for key in visible_keys
     ]
 
+    base_currency = user.preferred_currency or DEFAULT_BASE_CURRENCY
+
     await state.set_state(SearchForm.showing_results)
-    await state.update_data(entries=entries, rates=rates)
+    await state.update_data(entries=entries, rates=rates, base_currency=base_currency)
 
     hidden = len(all_games) - len(games)
     footer = "Want to track prices in more regions?\nAdd a new one: /add_region"
@@ -196,6 +198,7 @@ async def _do_search(message: Message, state: FSMContext, session: AsyncSession,
         games=games,
         prices=[by_key[k] for k in visible_keys],
         rates=rates,
+        base_currency=base_currency,
     )
     await message.answer(text, reply_markup=search_results_keyboard(games))
 
@@ -227,6 +230,7 @@ async def on_game_select(callback: CallbackQuery, state: FSMContext, session: As
     data = await state.get_data()
     entries = data.get("entries", [])
     rates = data.get("rates")
+    base_currency = data.get("base_currency", DEFAULT_BASE_CURRENCY)
 
     index = int(callback.data.split(":", 1)[1])
     if index >= len(entries):
@@ -261,6 +265,7 @@ async def on_game_select(callback: CallbackQuery, state: FSMContext, session: As
         prices,
         rates,
         footer="Want to track prices in more regions?\nAdd a new one: /add_region",
+        base_currency=base_currency,
     )
     game_id = await is_subscribed(session, callback.from_user.id, game.composite_key, game.ps_id_suffix)
     keyboard = unsubscribe_keyboard(game_id) if game_id else subscribe_keyboard(index)

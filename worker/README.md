@@ -31,7 +31,7 @@ Picks up pending `price_drops` and sends Telegram notifications to subscribers.
 For each pending `PriceDrop`:
 1. Reads current prices from `game_regions` for the game.
 2. For each subscriber, filters to regions the user tracks.
-3. Calls `notify_price_drop` (sends a photo or text message via aiogram).
+3. Calls `notify_price_drop` (sends a photo or text message via aiogram). Each notification is personalised: prices are converted to the user's `preferred_currency` (defaults to `USD`), the cheapest region is highlighted in bold based on those converted values, and old prices (shown with a ↓ arrow) are converted to the same currency.
 4. Marks `price_drop.notified_at` regardless of per-user failures, to prevent duplicate notifications.
 
 ---

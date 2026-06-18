@@ -10,6 +10,7 @@ erDiagram
         int id PK
         bigint telegram_id
         varchar username
+        varchar preferred_currency
     }
     regions {
         int id PK
@@ -71,12 +72,15 @@ erDiagram
 
 Telegram users who have interacted with the bot.
 
-| Column        | Type          | Notes                        |
-|---------------|---------------|------------------------------|
-| `id`          | serial PK     |                              |
-| `telegram_id` | bigint UNIQUE | Telegram user ID             |
-| `username`    | varchar(64)   | nullable                     |
-| `created_at`  | timestamptz   | server default `now()`       |
+| Column               | Type          | Notes                                                                 |
+|----------------------|---------------|-----------------------------------------------------------------------|
+| `id`                 | serial PK     |                                                                       |
+| `telegram_id`        | bigint UNIQUE | Telegram user ID                                                      |
+| `username`           | varchar(64)   | nullable                                                              |
+| `created_at`         | timestamptz   | server default `now()`                                                |
+| `preferred_currency` | varchar(8)    | ISO 4217 code for display conversion (e.g. `EUR`); `NULL` means `USD` |
+
+`preferred_currency` is set via the `/currency` command and controls how prices are converted for display (search results, game cards, price-drop notifications). It accepts any ISO 4217 code supported by the exchange rate API — not limited to PS Store native currencies. Validation happens against live rates at the time the command is issued.
 
 ---
 
