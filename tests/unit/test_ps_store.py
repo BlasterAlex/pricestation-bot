@@ -448,6 +448,63 @@ async def test_get_game_info_skips_free_trial_cta(make_mock_store):
     assert price.currency == "¥"
 
 
+# --- pre-order ---
+
+PRE_ORDER_PS_ID = "UP9000-PPSA03671_00-MARVELSWOLVERINE"
+
+
+def _preorder_gql(ps_id: str, base: int = 6999, discounted: int | None = None, currency: str = "USD") -> dict:
+    return {"data": {"productRetrieve": {"concept": {"products": [{
+        "id": ps_id,
+        "name": "Marvel's Wolverine",
+        "platforms": ["PS5"],
+        "storeDisplayClassification": "FULL_GAME",
+        "media": [],
+        "webctas": [{
+            "type": "PREORDER",
+            "meta": {"upSellService": "NONE"},
+            "price": {
+                "isFree": False,
+                "basePriceValue": base,
+                "discountedValue": discounted if discounted is not None else base,
+                "currencyCode": currency,
+            },
+        }],
+    }]}}}}
+
+
+@pytest.mark.asyncio
+async def test_get_game_info_preorder_returns_game(make_mock_store):
+    make_mock_store(_preorder_gql(PRE_ORDER_PS_ID))
+    result = await get_game_info(PRE_ORDER_PS_ID, "en-us")
+    assert result is not None
+    game, _ = result
+    assert game.title == "Marvel's Wolverine"
+    assert game.type == "FULL_GAME"
+
+
+@pytest.mark.asyncio
+async def test_get_game_info_preorder_price(make_mock_store):
+    make_mock_store(_preorder_gql(PRE_ORDER_PS_ID, base=6999, currency="USD"))
+    result = await get_game_info(PRE_ORDER_PS_ID, "en-us")
+    assert result is not None
+    _, price = result
+    assert price.price == 69.99
+    assert price.currency == "$"
+    assert price.base_price is None
+
+
+@pytest.mark.asyncio
+async def test_get_game_info_preorder_discount(make_mock_store):
+    """Pre-order early-bird discount: discountedValue < basePriceValue."""
+    make_mock_store(_preorder_gql(PRE_ORDER_PS_ID, base=6999, discounted=4999, currency="USD"))
+    result = await get_game_info(PRE_ORDER_PS_ID, "en-us")
+    assert result is not None
+    _, price = result
+    assert price.price == 49.99
+    assert price.base_price == 69.99
+
+
 # --- ps_id_suffix ---
 
 def test_ps_id_suffix_standard():
