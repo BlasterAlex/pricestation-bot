@@ -292,15 +292,20 @@ def best_ps_id(region_code: str, ps_ids: dict[str, str]) -> str | None:
     return next((pid for pid in ps_ids.values() if pid.startswith(preferred)), None)
 
 
+_PURCHASE_CTA_TYPES = frozenset({"ADD_TO_CART", "PREORDER"})
+
 # Returns the price dict for the first outright purchase CTA, or None if the game
 # is unavailable in the region (UNAVAILABLE type) or only free/PS Plus options exist.
+# PREORDER is treated identically to ADD_TO_CART — pre-order prices are real prices.
 def _outright_price(webctas: list[dict]) -> dict | None:
     for cta in webctas:
-        if cta.get("type") == "ADD_TO_CART":
-            if (cta.get("meta") or {}).get("upSellService") == "NONE":
-                price = cta.get("price")
-                if not (price or {}).get("isFree"):
-                    return price
+        if cta.get("type") not in _PURCHASE_CTA_TYPES:
+            continue
+        if (cta.get("meta") or {}).get("upSellService") not in ("NONE", None):
+            continue
+        price = cta.get("price")
+        if price and not price.get("isFree"):
+            return price
     return None
 
 
