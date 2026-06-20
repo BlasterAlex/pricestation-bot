@@ -2,6 +2,7 @@ import logging
 import time
 
 import aiohttp
+import pycountry
 
 _WARN_STATUSES = {403, 404, 410, 429}
 
@@ -64,6 +65,34 @@ PS_ISO_TO_SYMBOL: dict[str, str] = {
 
 DEFAULT_BASE_CURRENCY = "USD"
 
+_MAX_SUGGESTIONS = 10
+
+
+def find_currency_suggestions(query: str, rates: dict[str, float]) -> list[tuple[str, str]]:
+    """Return (alpha_3, name) pairs matching *query* by code prefix or name substring.
+
+    Only codes present in *rates* are returned. Results are sorted: code
+    prefix matches first, then name-only matches.
+    """
+    q = query.upper()
+    q_lower = query.lower()
+
+    code_matches: list[tuple[str, str]] = []
+    name_matches: list[tuple[str, str]] = []
+
+    search_by_name = len(query) >= 3
+
+    for iso in rates:
+        c = pycountry.currencies.get(alpha_3=iso)
+        name = c.name if c else iso
+        if iso.startswith(q):
+            code_matches.append((iso, name))
+        elif search_by_name and q_lower in name.lower():
+            name_matches.append((iso, name))
+
+    combined = code_matches + name_matches
+    return combined[:_MAX_SUGGESTIONS]
+
 _RATES_CACHE: dict[str, float] = {}
 _CACHE_TTL = 3600  # 1 hour
 _cache_ts: float = 0.0
@@ -114,10 +143,3 @@ def convert(
     return round(amount / from_rate * to_rate, 2)
 
 
-def convert_to_usd(amount: float, ps_currency: str, rates: dict[str, float]) -> float | None:
-    return convert(amount, ps_currency, "USD", rates)
-
-
-async def to_usd(amount: float, ps_currency: str) -> float | None:
-    rates = await get_rates()
-    return convert_to_usd(amount, ps_currency, rates)
