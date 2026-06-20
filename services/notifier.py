@@ -2,6 +2,7 @@ from aiogram import Bot
 
 from bot.formatters import format_game_card
 from bot.keyboards.inline import unsubscribe_keyboard
+from services.currency import DEFAULT_BASE_CURRENCY
 from services.ps_store import GameInfo, RegionPrice
 
 
@@ -13,9 +14,10 @@ async def notify_price_drop(
     prices: dict[str, RegionPrice],
     old_prices: dict[str, float] | None,
     rates: dict[str, float] | None,
+    base_currency: str = DEFAULT_BASE_CURRENCY,
 ) -> None:
     title = "🔔 Price drop!"
-    text = format_game_card(game_info, prices, rates, old_prices, title=title)
+    text = format_game_card(game_info, prices, rates, old_prices, title=title, base_currency=base_currency)
     keyboard = unsubscribe_keyboard(game_id)
     if game_info.cover_url:
         await bot.send_photo(telegram_id, game_info.cover_url, caption=text, reply_markup=keyboard)

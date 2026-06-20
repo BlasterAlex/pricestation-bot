@@ -8,7 +8,7 @@ from bot.formatters import format_game_list
 from bot.keyboards.inline import subscriptions_list_keyboard
 from bot.metrics import bot_handler_errors
 from bot.states.subscription import SearchForm
-from services.currency import get_rates
+from services.currency import DEFAULT_BASE_CURRENCY, get_rates
 from services.ps_store import GameInfo, RegionPrice
 from services.subscription import get_user_subscriptions_page, subscribe_to_game, unsubscribe_from_game
 from services.user import get_or_create_user
@@ -86,7 +86,8 @@ async def _build_subs_page(
     page: int,
 ) -> tuple[str, InlineKeyboardMarkup] | None:
     """Return (text, keyboard) for the given page, or None if no subscriptions."""
-    await get_or_create_user(session, telegram_id, username)
+    user = await get_or_create_user(session, telegram_id, username)
+    base_currency = user.preferred_currency or DEFAULT_BASE_CURRENCY
 
     total, page_items = await get_user_subscriptions_page(
         session, telegram_id, page, _SUBS_PAGE_SIZE
@@ -106,7 +107,7 @@ async def _build_subs_page(
         for gi, prices in page_items
     ]
     await state.set_state(SearchForm.showing_results)
-    await state.update_data(entries=entries, rates=rates)
+    await state.update_data(entries=entries, rates=rates, base_currency=base_currency)
 
     text = format_game_list(
         title=f"Your subscriptions ({total} total):",
@@ -114,6 +115,7 @@ async def _build_subs_page(
         games=games,
         prices=[prices for _, prices in page_items],
         rates=rates,
+        base_currency=base_currency,
     )
     return text, subscriptions_list_keyboard(games, page, total_pages)
 

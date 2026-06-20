@@ -1,5 +1,4 @@
-
-from services.currency import PS_CURRENCY_MAP, convert_to_usd
+from services.currency import DEFAULT_BASE_CURRENCY, PS_CURRENCY_MAP, PS_ISO_TO_SYMBOL, convert
 from services.ps_store import GameInfo, RegionPrice
 
 TYPE_EMOJI = {
@@ -27,27 +26,39 @@ def _format_price(amount: float, currency: str) -> str:
     return f"{currency}{sep}{amount:.2f}"
 
 
-def _usd_by_locale(
+def _base_by_locale(
     prices: dict[str, RegionPrice],
     rates: dict[str, float] | None,
+    base_currency: str,
 ) -> dict[str, float | None]:
     result = {}
     for locale, rp in prices.items():
         if rp.price is not None and rp.currency is not None and rates is not None:
-            result[locale] = convert_to_usd(rp.price, rp.currency, rates)
+            result[locale] = convert(rp.price, rp.currency, base_currency, rates)
         else:
             result[locale] = None
     return result
 
 
+def _base_str(base_value: float | None, base_currency: str, region_iso: str) -> str:
+    if base_value is None or region_iso == base_currency:
+        return ""
+    symbol = PS_ISO_TO_SYMBOL.get(base_currency, base_currency)
+    sep = " " if symbol.isalpha() else ""
+    if base_value == int(base_value):
+        return f" ({symbol}{sep}{int(base_value)})"
+    return f" ({symbol}{sep}{base_value:.2f})"
+
+
 def _price_line(
     prices: dict[str, RegionPrice],
     rates: dict[str, float] | None,
+    base_currency: str = DEFAULT_BASE_CURRENCY,
 ) -> str:
-    usd_map = _usd_by_locale(prices, rates)
+    base_map = _base_by_locale(prices, rates, base_currency)
     cheapest = min(
-        (loc for loc, usd in usd_map.items() if usd is not None),
-        key=lambda loc: usd_map[loc],
+        (loc for loc, val in base_map.items() if val is not None),
+        key=lambda loc: base_map[loc],
         default=None,
     )
 
@@ -58,12 +69,12 @@ def _price_line(
             parts.append(f"{flag} N/A")
             continue
 
-        usd = usd_map.get(locale)
+        base_val = base_map.get(locale)
         iso = PS_CURRENCY_MAP.get(rp.currency, rp.currency)
-        usd_str = f" (${usd:.2f})" if usd is not None and iso != "USD" else ""
+        base_suffix = _base_str(base_val, base_currency, iso)
         strike = f"<s>{_format_price(rp.base_price, rp.currency)}</s> " if rp.base_price is not None else ""
         discount_str = f" {rp.discount_text}" if rp.discount_text else ""
-        price_label = f"{strike}{_format_price(rp.price, rp.currency)}{discount_str}{usd_str}"
+        price_label = f"{strike}{_format_price(rp.price, rp.currency)}{discount_str}{base_suffix}"
         text = f"{flag} {price_label}"
 
         if locale == cheapest and cheapest is not None and len(prices) > 1:
@@ -84,11 +95,12 @@ def _card_price_lines(
     prices: dict[str, RegionPrice],
     rates: dict[str, float] | None,
     old_prices: dict[str, float] | None = None,
+    base_currency: str = DEFAULT_BASE_CURRENCY,
 ) -> list[str]:
-    usd_map = _usd_by_locale(prices, rates)
+    base_map = _base_by_locale(prices, rates, base_currency)
     cheapest = min(
-        (loc for loc, usd in usd_map.items() if usd is not None),
-        key=lambda loc: usd_map[loc],
+        (loc for loc, val in base_map.items() if val is not None),
+        key=lambda loc: base_map[loc],
         default=None,
     )
 
@@ -99,12 +111,12 @@ def _card_price_lines(
             lines.append(f"{flag} N/A")
             continue
 
-        usd = usd_map.get(locale)
+        base_val = base_map.get(locale)
         iso = PS_CURRENCY_MAP.get(rp.currency, rp.currency)
-        usd_str = f" (${usd:.2f})" if usd is not None and iso != "USD" else ""
+        base_suffix = _base_str(base_val, base_currency, iso)
         strike = f"<s>{_format_price(rp.base_price, rp.currency)}</s> " if rp.base_price is not None else ""
         discount_str = f" {rp.discount_text}" if rp.discount_text else ""
-        price_label = f"{strike}{_format_price(rp.price, rp.currency)}{discount_str}{usd_str}"
+        price_label = f"{strike}{_format_price(rp.price, rp.currency)}{discount_str}{base_suffix}"
 
         url = f"https://store.playstation.com/{locale}/product/{rp.ps_id}"
         is_cheapest = locale == cheapest and cheapest is not None and len(prices) > 1
@@ -115,14 +127,12 @@ def _card_price_lines(
 
         old_price = (old_prices or {}).get(locale)
         if old_price is not None and old_price != rp.price:
-            # Skip when the game is on sale and old_price == base_price:
-            # the strikethrough base_price in the card already shows the pre-sale price.
             if rp.base_price is None or abs(rp.base_price - old_price) > 0.001:
-                old_usd = convert_to_usd(old_price, rp.currency, rates) if rates else None
+                old_base = convert(old_price, rp.currency, base_currency, rates) if rates else None
                 old_iso = PS_CURRENCY_MAP.get(rp.currency, rp.currency)
-                old_usd_str = f" (${old_usd:.2f})" if old_usd is not None and old_iso != "USD" else ""
+                old_base_suffix = _base_str(old_base, base_currency, old_iso)
                 arrow = "↓" if rp.price < old_price else "↑"
-                text += f"  {arrow} <s>{_format_price(old_price, rp.currency)}{old_usd_str}</s>"
+                text += f"  {arrow} <s>{_format_price(old_price, rp.currency)}{old_base_suffix}</s>"
 
         lines.append(text)
 
@@ -135,6 +145,7 @@ def format_game_list(
     games: list[GameInfo],
     prices: list[dict[str, RegionPrice]],
     rates: dict[str, float] | None = None,
+    base_currency: str = DEFAULT_BASE_CURRENCY,
 ) -> str:
     if not games:
         return "Nothing found. Try a different query."
@@ -143,7 +154,7 @@ def format_game_list(
     for game, game_prices in zip(games, prices):
         lines = _game_header(game)
         if game_prices:
-            lines.append(_price_line(game_prices, rates))
+            lines.append(_price_line(game_prices, rates, base_currency))
         cards.append("\n".join(lines))
 
     return f"{title}\n\n" + "\n\n".join(cards) + f"\n\n{footer}"
@@ -166,11 +177,12 @@ def format_game_card(
     old_prices: dict[str, float] | None = None,
     title: str = "",
     footer: str = "",
+    base_currency: str = DEFAULT_BASE_CURRENCY,
 ) -> str:
     lines = _game_header(game)
     if prices:
         lines.append("\nPrices by region:")
-        lines.extend(_card_price_lines(prices, rates, old_prices))
+        lines.extend(_card_price_lines(prices, rates, old_prices, base_currency))
         offer_end = _offer_end_line(prices)
         if offer_end:
             lines.append(f"\nOffer ends:\n<b>{offer_end}</b>")

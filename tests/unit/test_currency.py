@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import services.currency as _mod
-from services.currency import _fetch_rates, get_rates, to_usd
+from services.currency import _fetch_rates, find_currency_suggestions, get_rates
 
 
 @pytest.fixture(autouse=True)
@@ -98,18 +98,64 @@ async def test_get_rates_preserves_old_cache_when_fetch_returns_empty(mocker):
     assert rates == {"EUR": 0.92}  # old cache not overwritten
 
 
-# ── to_usd ────────────────────────────────────────────────────────────────────
+# ── find_currency_suggestions ─────────────────────────────────────────────────
+
+_RATES = {"USD": 1.0, "EUR": 0.92, "GBP": 0.79, "RUB": 73.3, "BYN": 2.77, "AUD": 1.43, "CAD": 1.41}
 
 
-@pytest.mark.asyncio
-async def test_to_usd_converts_via_rates(mocker):
-    mocker.patch("services.currency.get_rates", AsyncMock(return_value={"EUR": 0.92}))
-    result = await to_usd(9.20, "€")
-    assert result == pytest.approx(10.0, rel=1e-2)
+def test_find_by_code_prefix():
+    results = find_currency_suggestions("RU", _RATES)
+    codes = [r[0] for r in results]
+    assert "RUB" in codes
 
 
-@pytest.mark.asyncio
-async def test_to_usd_returns_none_for_unknown_currency(mocker):
-    mocker.patch("services.currency.get_rates", AsyncMock(return_value={}))
-    result = await to_usd(100.0, "XYZ")
-    assert result is None
+def test_find_by_name_substring():
+    results = find_currency_suggestions("ruble", _RATES)
+    codes = [r[0] for r in results]
+    assert "RUB" in codes
+    assert "BYN" in codes
+
+
+def test_code_prefix_comes_before_name_match():
+    # "AU" matches AUD by prefix and "Australian Dollar" by name — prefix wins position
+    rates = {"AUD": 1.43, "UAH": 44.9}  # UAH name contains no "au", AUD code starts with AU
+    results = find_currency_suggestions("AU", rates)
+    codes = [r[0] for r in results]
+    assert codes[0] == "AUD"
+
+
+def test_returns_name_from_pycountry():
+    results = find_currency_suggestions("EUR", _RATES)
+    assert results == [("EUR", "Euro")]
+
+
+def test_unknown_iso_falls_back_to_code_as_name(mocker):
+    mocker.patch("services.currency.pycountry.currencies.get", return_value=None)
+    results = find_currency_suggestions("CN", {"CNH": 6.77})
+    assert results == [("CNH", "CNH")]
+
+
+def test_short_query_does_not_search_by_name():
+    # "ru" is 2 chars — should not match BYN via "Belarusian Ruble"
+    results = find_currency_suggestions("ru", _RATES)
+    codes = [r[0] for r in results]
+    assert "BYN" not in codes
+    assert "RUB" in codes  # still matches by code prefix
+
+
+def test_no_match_returns_empty():
+    results = find_currency_suggestions("ZZZ", _RATES)
+    assert results == []
+
+
+def test_excludes_codes_not_in_rates():
+    results = find_currency_suggestions("EU", {"USD": 1.0})  # EUR not in rates
+    codes = [r[0] for r in results]
+    assert "EUR" not in codes
+
+
+def test_respects_max_suggestions(mocker):
+    # 15 codes all starting with "A"
+    rates = {f"A{chr(65+i)}{chr(65+i)}": 1.0 for i in range(15)}
+    results = find_currency_suggestions("A", rates)
+    assert len(results) <= _mod._MAX_SUGGESTIONS

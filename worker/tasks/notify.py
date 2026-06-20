@@ -7,7 +7,7 @@ from aiogram import Bot
 
 from db.session import AsyncSessionFactory
 from services import price
-from services.currency import get_rates
+from services.currency import DEFAULT_BASE_CURRENCY, get_rates
 from services.notifier import notify_price_drop
 from services.ps_store import GameInfo, RegionPrice
 from worker.metrics import notifications_failed, notifications_sent
@@ -83,6 +83,7 @@ async def send_notifications(bot: Bot) -> None:
                         prices=prices,
                         old_prices=old_prices or None,
                         rates=rates,
+                        base_currency=user.preferred_currency or DEFAULT_BASE_CURRENCY,
                     )
                     sent_for_drop += 1
                 except Exception:

@@ -76,6 +76,14 @@ def subscriptions_list_keyboard(
     return builder.as_markup()
 
 
+def currency_suggestions_keyboard(suggestions: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for iso, name in suggestions:
+        builder.button(text=f"{iso} — {name}", callback_data=f"currency_select:{iso}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 def cancel_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="Cancel", callback_data="cancel")
