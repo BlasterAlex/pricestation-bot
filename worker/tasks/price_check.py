@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 
-from db.models import GameRegion, PriceDrop
+from db.models import GameRegion, PriceDrop, PriceHistory
 from db.session import AsyncSessionFactory
 from services import price
 from services.ps_store import get_game_info
@@ -70,6 +70,15 @@ async def _check_game_region(session, gr: GameRegion) -> str:
 
     if price_dropped:
         gr.old_price = gr.current_price
+        session.add(PriceHistory(
+            game_id=gr.game_id,
+            region_id=gr.region_id,
+            price=new_price,
+            discount_end=region_price.discount_end,
+        ))
+    elif old_stored is not None and new_price > old_stored:
+        gr.old_price = None
+
     gr.current_price = new_price
     gr.base_price = region_price.base_price
     gr.discount_text = region_price.discount_text

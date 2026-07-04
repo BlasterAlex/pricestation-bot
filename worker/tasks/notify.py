@@ -9,6 +9,7 @@ from db.session import AsyncSessionFactory
 from services import price
 from services.currency import DEFAULT_BASE_CURRENCY, get_rates
 from services.notifier import notify_price_drop
+from services.price_history import LIMIT_PUSH, get_user_game_sale_history, resolve_history_format
 from services.ps_store import GameInfo, RegionPrice
 from worker.metrics import notifications_failed, notifications_sent
 
@@ -74,6 +75,10 @@ async def send_notifications(bot: Bot) -> None:
                 if not prices:
                     continue
 
+                sale_history = await get_user_game_sale_history(
+                    session, user.id, game.id, limit_per_region=LIMIT_PUSH,
+                )
+
                 try:
                     await notify_price_drop(
                         bot=bot,
@@ -84,6 +89,8 @@ async def send_notifications(bot: Bot) -> None:
                         old_prices=old_prices or None,
                         rates=rates,
                         base_currency=user.preferred_currency or DEFAULT_BASE_CURRENCY,
+                        sale_history=sale_history,
+                        history_format=resolve_history_format(user.history_display_format),
                     )
                     sent_for_drop += 1
                 except Exception:

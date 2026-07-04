@@ -12,3 +12,4 @@ pytest-mock==3.14.0
 prometheus-client==0.21.1
 ruff==0.11.8
 pycountry>=24.6.1
+PyYAML>=6.0

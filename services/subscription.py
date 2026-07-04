@@ -17,6 +17,7 @@ from db.models.region import Region
 from db.models.subscription import Subscription
 from db.models.user import User
 from db.models.user_region import UserRegion
+from services.price_history import record_active_sales_on_subscribe
 from services.ps_store import GameInfo, RegionPrice, best_ps_id, get_game_info, is_effectively_ascii, search_games
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,8 @@ async def subscribe_to_game(
             session.add(_make_game_region(game.id, region.id, rp))
 
         session.add(Subscription(user_id=user.id, game_id=game.id))
+        await session.flush()
+        await record_active_sales_on_subscribe(session, game.id, prices, regions_by_code)
         await session.commit()
         logger.info(
             "subscribed telegram_id=%d to new game %r regions=%s",
@@ -167,6 +170,9 @@ async def subscribe_to_game(
             session.add(_make_game_region(game.id, region.id, rp))
 
     session.add(Subscription(user_id=user.id, game_id=game.id))
+    await session.flush()
+    all_regions = {**existing_regions, **regions_by_code}
+    await record_active_sales_on_subscribe(session, game.id, prices, all_regions)
     await session.commit()
     logger.info(
         "subscribed telegram_id=%d to existing game_id=%d %r",
@@ -220,8 +226,8 @@ async def get_user_subscriptions_page(
     telegram_id: int,
     page: int,
     page_size: int,
-) -> tuple[int, list[tuple[GameInfo, dict[str, RegionPrice]]]]:
-    """Return (total, [(GameInfo, {region_code: RegionPrice})]) for the given page.
+) -> tuple[int, list[tuple[int, GameInfo, dict[str, RegionPrice]]]]:
+    """Return (total, [(game_id, GameInfo, {region_code: RegionPrice})]) for the given page.
 
     Results are sorted by subscription date desc (newest first).
     Prices are read from game_regions in the DB — may be stale.
@@ -268,7 +274,7 @@ async def get_user_subscriptions_page(
             discount_end=gr.discount_end,
         )
 
-    result: list[tuple[GameInfo, dict[str, RegionPrice]]] = []
+    result: list[tuple[int, GameInfo, dict[str, RegionPrice]]] = []
     for game, _ in page_rows:
         game_info = GameInfo(
             title=game.title,
@@ -277,7 +283,7 @@ async def get_user_subscriptions_page(
             cover_url=game.cover_url,
             ps_id_suffix=game.ps_id_suffix,
         )
-        result.append((game_info, prices_map.get(game.id, {})))
+        result.append((game.id, game_info, prices_map.get(game.id, {})))
     return total, result
 
 
@@ -385,10 +391,14 @@ async def sync_subscriptions_for_new_region(
         region_prices.append((game_id, rp))
 
     created = 0
+    regions_by_code = {region.code: region}
     for game_id, rp in region_prices:
         if region.currency is None and rp.currency is not None:
             region.currency = rp.currency
         session.add(_make_game_region(game_id, region.id, rp))
+        await record_active_sales_on_subscribe(
+            session, game_id, {region.code: rp}, regions_by_code,
+        )
         created += 1
 
     if created:

@@ -17,6 +17,7 @@ An automated Telegram bot designed to help gamers find the lowest prices for Pla
 - **Global Search:** Compare prices across multiple regions (TR, US, UA, PL, etc.) in one click
 - **Price Tracking:** Subscribe to your favorite games
 - **Smart Notifications:** Get alerts when prices drop or a sale starts
+- **Sale History:** Past sales for subscribed games while you track them — see [`docs/features/price-history.md`](docs/features/price-history.md)
 - **Currency Conversion:** View all prices converted to your preferred currency (USD by default)
 
 ### Commands
@@ -24,11 +25,9 @@ An automated Telegram bot designed to help gamers find the lowest prices for Pla
 | Command             | Description                                                      |
 |---------------------|------------------------------------------------------------------|
 | `/start`            | Welcome message                                                  |
-| `/currency`         | View or change your display currency                             |
-| `/add_region`       | Search and add a PS Store region to track                        |
-| `/my_regions`       | Manage your tracked regions                                      |
+| `/settings`         | Display currency, tracked regions, sale history format           |
 | `/search`           | Search for a game and compare prices across your tracked regions |
-| `/my_subscriptions` | View your subscribed games with current prices                   |
+| `/subscriptions`    | View your subscribed games with current prices                   |
 
 ---
 
@@ -159,3 +158,4 @@ Migrations run automatically before `bot` and `worker` start.
 | [`services/README.md`](services/README.md)           | Services: currency conversion logic, exchange rates, display |
 | [`deploy/vector/README.md`](deploy/vector/README.md) | Vector alerting pipeline: sources, transforms, metrics       |
 | [`research/README.md`](research/README.md)           | PS Store search grouping research                            |
+| [`docs/features/`](docs/features/)                   | Feature overviews (product scope, user-facing behaviour)     |

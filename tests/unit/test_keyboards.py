@@ -1,4 +1,9 @@
-from bot.keyboards.inline import subscribe_keyboard, subscriptions_list_keyboard, unsubscribe_keyboard
+from bot.keyboards.inline import (
+    price_drop_keyboard,
+    subscribe_keyboard,
+    subscriptions_list_keyboard,
+    unsubscribe_keyboard,
+)
 from services.ps_store import GameInfo
 
 
@@ -20,31 +25,48 @@ def test_unsubscribe_keyboard():
     assert button.callback_data == "unsubscribe:42"
 
 
+def test_price_drop_keyboard():
+    kb = price_drop_keyboard(42)
+    callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+    assert callbacks == ["subs_detail:42", "unsubscribe:42"]
+
+
+def test_ps_regions_keyboard_tracked_is_noop():
+    from bot.keyboards.inline import ps_regions_keyboard
+
+    countries = [{"locale": "tr-tr", "name": "Turkey"}, {"locale": "en-us", "name": "United States"}]
+    kb = ps_regions_keyboard(countries, tracked_locales={"tr-tr"})
+    by_data = {btn.callback_data: btn.text for row in kb.inline_keyboard for btn in row}
+    assert by_data["noop"].startswith("✓")
+    assert "Turkey" in by_data["noop"]
+    assert by_data["region_add:en-us"] == "🇺🇸 United States"
+
+
 # ── subscriptions_list_keyboard ───────────────────────────────────────────────
 
 def test_subscriptions_list_keyboard_game_buttons():
-    games = [_game(f"Game {i}") for i in range(3)]
-    kb = subscriptions_list_keyboard(games, page=0, total_pages=1)
+    items = [(i + 100, _game(f"Game {i}")) for i in range(3)]
+    kb = subscriptions_list_keyboard(items, page=0, total_pages=1)
     rows = kb.inline_keyboard
     assert len(rows) == 3
     for i, row in enumerate(rows):
-        assert row[0].callback_data == f"game_select:{i}"
+        assert row[0].callback_data == f"subs_detail:{i + 100}"
         assert f"Game {i}" in row[0].text
 
 
 def test_subscriptions_list_keyboard_game_button_emoji():
-    kb = subscriptions_list_keyboard([_game(type_="PREMIUM_EDITION")], page=0, total_pages=1)
+    kb = subscriptions_list_keyboard([(1, _game(type_="PREMIUM_EDITION"))], page=0, total_pages=1)
     assert kb.inline_keyboard[0][0].text.startswith("💎")
 
 
 def test_subscriptions_list_keyboard_no_nav_when_single_page():
-    kb = subscriptions_list_keyboard([_game()], page=0, total_pages=1)
+    kb = subscriptions_list_keyboard([(1, _game())], page=0, total_pages=1)
     all_callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
     assert not any("subs_page" in c for c in all_callbacks)
 
 
 def test_subscriptions_list_keyboard_nav_first_page():
-    kb = subscriptions_list_keyboard([_game()], page=0, total_pages=3)
+    kb = subscriptions_list_keyboard([(1, _game())], page=0, total_pages=3)
     nav_callbacks = [btn.callback_data for btn in kb.inline_keyboard[-1]]
     assert "subs_page:1" in nav_callbacks
     assert "subs_page:-1" not in nav_callbacks
@@ -52,21 +74,21 @@ def test_subscriptions_list_keyboard_nav_first_page():
 
 
 def test_subscriptions_list_keyboard_nav_last_page():
-    kb = subscriptions_list_keyboard([_game()], page=2, total_pages=3)
+    kb = subscriptions_list_keyboard([(1, _game())], page=2, total_pages=3)
     nav_callbacks = [btn.callback_data for btn in kb.inline_keyboard[-1]]
     assert "subs_page:1" in nav_callbacks
     assert "subs_page:3" not in nav_callbacks
 
 
 def test_subscriptions_list_keyboard_nav_middle_page():
-    kb = subscriptions_list_keyboard([_game()], page=1, total_pages=3)
+    kb = subscriptions_list_keyboard([(1, _game())], page=1, total_pages=3)
     nav_callbacks = [btn.callback_data for btn in kb.inline_keyboard[-1]]
     assert "subs_page:0" in nav_callbacks
     assert "subs_page:2" in nav_callbacks
 
 
 def test_subscriptions_list_keyboard_page_indicator():
-    kb = subscriptions_list_keyboard([_game()], page=1, total_pages=5)
+    kb = subscriptions_list_keyboard([(1, _game())], page=1, total_pages=5)
     nav = kb.inline_keyboard[-1]
     indicator = next(btn for btn in nav if "/" in btn.text)
     assert indicator.text == "2 / 5"

@@ -1,14 +1,9 @@
 from aiogram import F, Router
-from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.keyboards.inline import (
-    cancel_keyboard,
-    ps_regions_keyboard,
-    user_regions_keyboard,
-)
+from bot.keyboards.inline import cancel_keyboard, ps_regions_keyboard, settings_regions_keyboard
 from bot.states.subscription import RegionForm
 from services.ps_api import get_ps_regions
 from services.region import (
@@ -51,39 +46,14 @@ async def _do_region_search(message: Message, session: AsyncSession, query: str)
     )
 
 
-@router.message(Command("add_region"))
-async def cmd_add_region(message: Message, state: FSMContext, session: AsyncSession) -> None:
-    query = message.text.partition(" ")[2].strip()
-    if query:
-        await _do_region_search(message, session, query)
-    else:
-        await state.set_state(RegionForm.waiting_for_search)
-        await message.answer(
-            "Type a country name to search:",
-            reply_markup=cancel_keyboard(),
-        )
-
-
-@router.message(Command("my_regions"))
-async def cmd_my_regions(message: Message, session: AsyncSession) -> None:
-    user = await get_or_create_user(
-        session, message.from_user.id, message.from_user.username
+@router.callback_query(F.data == "settings:regions:add")
+async def on_settings_regions_add(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(RegionForm.waiting_for_search)
+    await callback.message.edit_text(
+        "Type a country name to search:",
+        reply_markup=cancel_keyboard(),
     )
-    await session.commit()
-
-    regions = await get_user_regions(session, user.id)
-    if not regions:
-        await message.answer(
-            "You have no tracked regions yet.\n"
-            "Add one with /add_region"
-        )
-        return
-
-    await message.answer(
-        "Your regions (tap to remove):\n\n"
-        "Add a new one: /add_region",
-        reply_markup=user_regions_keyboard(regions),
-    )
+    await callback.answer()
 
 
 @router.message(RegionForm.waiting_for_search, ~F.text.startswith("/"))
@@ -105,7 +75,7 @@ async def on_noop(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "cancel")
 async def on_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await callback.message.edit_text("Cancelled.")
+    await callback.message.edit_text("Cancelled. Open /settings to continue.")
 
 
 @router.callback_query(F.data.startswith("region_add:"))
@@ -131,9 +101,10 @@ async def on_region_add(
     await state.clear()
 
     if added:
+        regions = await get_user_regions(session, user.id)
         await callback.message.edit_text(
-            f"✓ <b>{country['name']}</b> added to your tracked regions.\n\n"
-            "View your regions: /my_regions"
+            f"✓ <b>{country['name']}</b> added to your tracked regions.",
+            reply_markup=settings_regions_keyboard(regions),
         )
         await sync_subscriptions_for_new_region(session, user, region)
     else:
@@ -156,12 +127,12 @@ async def on_region_remove(
     regions = await get_user_regions(session, user.id)
     if not regions:
         await callback.message.edit_text(
-            "You have no tracked regions yet.\n"
-            "Add one with /add_region"
+            "You have no tracked regions yet.\nAdd one to search games and track prices.",
+            reply_markup=settings_regions_keyboard(regions),
         )
         return
 
     await callback.message.edit_reply_markup(
-        reply_markup=user_regions_keyboard(regions)
+        reply_markup=settings_regions_keyboard(regions)
     )
     await callback.answer()

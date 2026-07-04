@@ -115,7 +115,7 @@ async def _do_search(message: Message, state: FSMContext, session: AsyncSession,
     user_regions = await get_user_regions(session, user.id)
 
     if not user_regions:
-        await message.answer("No regions added yet.\nAdd one with /add_region")
+        await message.answer("No regions added yet.\nAdd one in /settings")
         return
 
     user_region_codes = [r.code for r in user_regions]
@@ -187,7 +187,7 @@ async def _do_search(message: Message, state: FSMContext, session: AsyncSession,
     await state.update_data(entries=entries, rates=rates, base_currency=base_currency)
 
     hidden = len(all_games) - len(games)
-    footer = "Want to track prices in more regions?\nAdd a new one: /add_region"
+    footer = "Want to track prices in more regions?\nAdd a new one in /settings"
     if hidden:
         notice = f"<b>Showing {len(games)} of {len(all_games)} results</b>. Refine your query to see more."
         footer = f"{notice}\n\n{footer}"

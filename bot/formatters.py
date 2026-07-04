@@ -1,4 +1,7 @@
+from datetime import datetime, timezone
+
 from services.currency import DEFAULT_BASE_CURRENCY, PS_CURRENCY_MAP, PS_ISO_TO_SYMBOL, convert
+from services.price_history import UserGameSaleHistory, format_sale_when
 from services.ps_store import GameInfo, RegionPrice
 
 TYPE_EMOJI = {
@@ -163,11 +166,66 @@ def format_game_list(
 def _offer_end_line(prices: dict[str, RegionPrice]) -> str | None:
     for rp in prices.values():
         if rp.discount_end and rp.base_price is not None:
-            d = rp.discount_end
-            if d.hour or d.minute:
-                return f"{d.day}/{d.month}/{d.year} {d.strftime('%H:%M')} UTC"
-            return f"{d.day}/{d.month}/{d.year} UTC"
+            return _format_offer_end(rp.discount_end)
     return None
+
+
+def _format_tracking_since(dt) -> str:
+    return dt.strftime("%d %b %Y")
+
+
+def _format_offer_end(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    if dt.hour or dt.minute:
+        return f"{dt.strftime('%d %b %Y %H:%M')} UTC"
+    return dt.strftime("%d %b %Y")
+
+
+def _format_sale_price(
+    price: float,
+    region_currency: str,
+    rates: dict[str, float] | None,
+    base_currency: str,
+) -> str:
+    native = _format_price(price, region_currency)
+    iso = PS_CURRENCY_MAP.get(region_currency, region_currency)
+    converted = convert(price, region_currency, base_currency, rates) if rates else None
+    return f"{native}{_base_str(converted, base_currency, iso)}"
+
+
+def format_past_sales_lines(
+    sale_history: UserGameSaleHistory | None,
+    history_format: str,
+    *,
+    limit_per_region: int,
+    rates: dict[str, float] | None = None,
+    base_currency: str = DEFAULT_BASE_CURRENCY,
+    show_tracking_footer: bool = True,
+) -> list[str]:
+    if sale_history is None:
+        return []
+
+    lines: list[str] = []
+    if sale_history.total_sales > 0:
+        lines.append("\n📉 Past sales:")
+        for region_hist in sale_history.regions:
+            if not region_hist.sales:
+                continue
+            flag = locale_flag(region_hist.region_code)
+            lines.append(f"{flag}")
+            for price, recorded_at in region_hist.sales[:limit_per_region]:
+                when = format_sale_when(recorded_at, history_format)
+                price_label = _format_sale_price(price, region_hist.currency, rates, base_currency)
+                lines.append(f"• {price_label} — {when}")
+
+    if show_tracking_footer:
+        since = _format_tracking_since(sale_history.tracking_since)
+        lines.append(f"\n<i>Tracking since {since}</i>")
+
+    return lines
 
 
 def format_game_card(
@@ -178,6 +236,9 @@ def format_game_card(
     title: str = "",
     footer: str = "",
     base_currency: str = DEFAULT_BASE_CURRENCY,
+    sale_history: UserGameSaleHistory | None = None,
+    history_format: str = "duration",
+    history_limit: int = 3,
 ) -> str:
     lines = _game_header(game)
     if prices:
@@ -185,7 +246,16 @@ def format_game_card(
         lines.extend(_card_price_lines(prices, rates, old_prices, base_currency))
         offer_end = _offer_end_line(prices)
         if offer_end:
-            lines.append(f"\nOffer ends:\n<b>{offer_end}</b>")
+            lines.append(f"\nOffer ends <b>{offer_end}</b>")
+        lines.extend(
+            format_past_sales_lines(
+                sale_history,
+                history_format,
+                limit_per_region=history_limit,
+                rates=rates,
+                base_currency=base_currency,
+            )
+        )
     body = "\n".join(lines)
     parts = [p for p in (title, body, footer) if p]
     return "\n\n".join(parts)
