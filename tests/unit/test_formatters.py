@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from bot.formatters import (
     _card_price_lines,
+    _format_offer_end,
     _format_price,
     _game_header,
     _offer_end_line,
@@ -238,9 +239,9 @@ def test_format_game_list_no_prices():
 
 def test_format_game_card_structure():
     prices = {"en-in": RegionPrice(4999.0, "Rs", None, None)}
-    result = format_game_card(GAME, prices, RATES, title="Details:", footer="Add region: /add_region")
+    result = format_game_card(GAME, prices, RATES, title="Details:", footer="Add region in /settings")
     assert result.startswith("Details:")
-    assert result.endswith("Add region: /add_region")
+    assert result.endswith("Add region in /settings")
     assert "Test Game" in result
     assert "Prices by region:" in result
 
@@ -263,13 +264,31 @@ def test_offer_end_line_shown_when_discounted():
     end = datetime(2026, 5, 22, 22, 59, tzinfo=timezone.utc)
     prices = {"en-us": RegionPrice(19.99, "$", 39.99, "-50%", discount_end=end)}
     line = _offer_end_line(prices)
-    assert line == "22/5/2026 22:59 UTC"
+    assert line == "22 May 2026 22:59 UTC"
 
 
 def test_offer_end_line_date_only_fallback():
     prices = {"en-us": RegionPrice(19.99, "$", 39.99, "-50%", discount_end=datetime(2026, 5, 22, tzinfo=timezone.utc))}
     line = _offer_end_line(prices)
-    assert line == "22/5/2026 UTC"
+    assert line == "22 May 2026"
+
+
+def test_format_offer_end_with_time():
+    end = datetime(2026, 7, 16, 6, 59, tzinfo=timezone.utc)
+    assert _format_offer_end(end) == "16 Jul 2026 06:59 UTC"
+
+
+def test_format_offer_end_date_only():
+    end = datetime(2026, 7, 16, tzinfo=timezone.utc)
+    assert _format_offer_end(end) == "16 Jul 2026"
+
+
+def test_format_game_card_offer_end_date_only_bold():
+    end = datetime(2026, 7, 16, tzinfo=timezone.utc)
+    prices = {"en-us": RegionPrice(37.49, "$", 49.99, "-25%", discount_end=end)}
+    result = format_game_card(GAME, prices, RATES)
+    assert "Offer ends <b>16 Jul 2026</b>" in result
+    assert "UTC" not in result.split("Offer ends")[1].split("\n")[0]
 
 
 def test_offer_end_line_none_when_no_discount():
@@ -293,15 +312,14 @@ def test_offer_end_takes_first_discounted_region():
         "en-gb": RegionPrice(14.99, "£", 29.99, "-50%", discount_end=end_gb),
     }
     line = _offer_end_line(prices)
-    assert line == "30/5/2026 22:59 UTC"
+    assert line == "30 May 2026 22:59 UTC"
 
 
 def test_format_game_card_shows_offer_end():
     end = datetime(2026, 5, 22, 22, 59, tzinfo=timezone.utc)
     prices = {"en-us": RegionPrice(19.99, "$", 39.99, "-50%", discount_end=end)}
     result = format_game_card(GAME, prices, RATES)
-    assert "Offer ends:" in result
-    assert "22/5/2026 22:59 UTC" in result
+    assert "Offer ends <b>22 May 2026 22:59 UTC</b>" in result
 
 
 # --- N/A price line ---
@@ -318,3 +336,84 @@ def test_format_game_card_no_offer_end_without_discount():
     prices = {"en-us": RegionPrice(39.99, "$", None, None)}
     result = format_game_card(GAME, prices, RATES)
     assert "Offer ends" not in result
+
+
+# --- past sales ---
+
+def test_format_past_sales_with_sales():
+    from bot.formatters import format_past_sales_lines
+    from services.price_history import RegionSaleHistory, UserGameSaleHistory
+
+    history = UserGameSaleHistory(
+        tracking_since=datetime(2026, 1, 12, tzinfo=timezone.utc),
+        regions=[
+            RegionSaleHistory(
+                "tr-tr",
+                "TL",
+                [(174.90, datetime(2026, 5, 18, tzinfo=timezone.utc))],
+            )
+        ],
+        total_sales=1,
+    )
+    lines = format_past_sales_lines(history, "duration", limit_per_region=3)
+    text = "\n".join(lines)
+    assert "Past sales" in text
+    assert "174" in text
+    assert "<i>Tracking since" in text
+
+
+def test_format_game_card_includes_past_sales():
+    from services.price_history import RegionSaleHistory, UserGameSaleHistory
+
+    prices = {"tr-tr": RegionPrice(174.90, "TL", 1749.0, "-90%")}
+    history = UserGameSaleHistory(
+        tracking_since=datetime(2026, 1, 12, tzinfo=timezone.utc),
+        regions=[
+            RegionSaleHistory(
+                "tr-tr",
+                "TL",
+                [(174.90, datetime(2026, 5, 18, tzinfo=timezone.utc))],
+            )
+        ],
+        total_sales=1,
+    )
+    result = format_game_card(GAME, prices, RATES, sale_history=history, history_format="duration")
+    assert "Past sales" in result
+    assert "174" in result
+
+
+def test_format_game_card_offer_end_before_past_sales():
+    from services.price_history import RegionSaleHistory, UserGameSaleHistory
+
+    end = datetime(2026, 5, 28, 6, 59, tzinfo=timezone.utc)
+    prices = {"tr-tr": RegionPrice(174.90, "TL", 1749.0, "-90%", discount_end=end)}
+    history = UserGameSaleHistory(
+        tracking_since=datetime(2026, 5, 23, tzinfo=timezone.utc),
+        regions=[
+            RegionSaleHistory(
+                "tr-tr",
+                "TL",
+                [(174.90, datetime(2026, 5, 18, tzinfo=timezone.utc))],
+            )
+        ],
+        total_sales=1,
+    )
+    result = format_game_card(
+        GAME, prices, RATES, sale_history=history, history_format="duration",
+    )
+    assert result.index("Offer ends <b>") < result.index("Past sales")
+    assert result.index("Past sales") < result.index("<i>Tracking since")
+
+
+def test_format_game_card_shows_tracking_without_past_sales():
+    from services.price_history import UserGameSaleHistory
+
+    prices = {"en-us": RegionPrice(37.49, "$", 49.99, "-25%")}
+    history = UserGameSaleHistory(
+        tracking_since=datetime(2026, 7, 4, tzinfo=timezone.utc),
+        regions=[],
+        total_sales=0,
+    )
+    result = format_game_card(GAME, prices, RATES, sale_history=history)
+    assert "Past sales" not in result
+    assert "<i>Tracking since 04 Jul 2026</i>" in result

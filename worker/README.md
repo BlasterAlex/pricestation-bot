@@ -18,6 +18,7 @@ For each `GameRegion`:
 3. If the price dropped:
    - Saves `old_price = current_price`, updates `current_price`.
    - Inserts a row into `price_drops` (`ON CONFLICT DO NOTHING` - one pending drop per game at a time).
+   - Inserts a row into `price_history` (including `discount_end` when the API provides it) — see [`services/README.md`](../services/README.md#price_historypy--sale-history).
 4. Updates `base_price`, `discount_text`, `discount_end`, `last_checked`, and game metadata.
 
 ---
@@ -31,7 +32,7 @@ Picks up pending `price_drops` and sends Telegram notifications to subscribers.
 For each pending `PriceDrop`:
 1. Reads current prices from `game_regions` for the game.
 2. For each subscriber, filters to regions the user tracks.
-3. Calls `notify_price_drop` (sends a photo or text message via aiogram). Each notification is personalised: prices are converted to the user's `preferred_currency` (defaults to `USD`), the cheapest region is highlighted in bold based on those converted values, and old prices (shown with a ↓ arrow) are converted to the same currency.
+3. Calls `notify_price_drop` (sends a photo or text message via aiogram). Each notification is personalised: prices are converted to the user's `preferred_currency` (defaults to `USD`), the cheapest region is highlighted in bold based on those converted values, old prices (shown with a ↓ arrow) are converted to the same currency, and a past sales block is included when ended-sale history exists — see [`docs/features/price-history.md`](../docs/features/price-history.md).
 4. Marks `price_drop.notified_at` regardless of per-user failures, to prevent duplicate notifications.
 
 ---

@@ -14,8 +14,7 @@ async def cmd_start(message: Message, session: AsyncSession) -> None:
     await session.commit()
     await message.answer(
         "Hi! I'm PriceStation — I track prices in the PS Store.\n\n"
-        "/currency — set your display currency\n"
-        "/add_region — choose regions to follow\n"
+        "/settings — display currency, regions, and preferences\n"
         "/search — find a game and subscribe to price drops\n"
-        "/my_subscriptions — manage your subscriptions"
+        "/subscriptions — manage your subscriptions"
     )

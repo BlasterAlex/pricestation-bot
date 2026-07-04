@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
@@ -6,7 +7,7 @@ import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Game, GameRegion, Region, Subscription, User
+from db.models import Game, GameRegion, PriceHistory, Region, Subscription, User
 from services.ps_store import GameInfo, RegionPrice
 from services.subscription import (
     _find_region_price,
@@ -26,7 +27,7 @@ def _make_region_price(
     price: float | None = 49.99,
     base_price: float | None = None,
     currency: str | None = "$",
-    discount_end: str | None = None,
+    discount_end: datetime | None = None,
 ) -> RegionPrice:
     return RegionPrice(
         ps_id=ps_id, price=price, currency=currency,
@@ -43,8 +44,6 @@ async def region2(session: AsyncSession):
     await session.flush()
     return r
 
-
-# ── subscribe_to_game ─────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_subscribe_new_game_creates_game(session: AsyncSession, user, region):
@@ -87,6 +86,60 @@ async def test_subscribe_new_game_creates_subscription(session: AsyncSession, us
         select(Subscription).where(Subscription.game_id == game.id, Subscription.user_id == user.id)
     )
     assert sub is not None
+
+
+@pytest.mark.asyncio
+async def test_subscribe_records_active_sale_in_history(session: AsyncSession, user, region):
+    game_info = _make_game_info()
+    end = datetime(2026, 7, 16, 6, 59, tzinfo=timezone.utc)
+    prices = {
+        region.code: _make_region_price(price=29.99, base_price=59.99, discount_end=end),
+    }
+
+    await subscribe_to_game(session, user, game_info, prices)
+
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
+    rows = (
+        await session.scalars(
+            select(PriceHistory).where(
+                PriceHistory.game_id == game.id,
+                PriceHistory.region_id == region.id,
+            )
+        )
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].price == Decimal("29.99")
+    assert rows[0].discount_end == end
+
+
+@pytest.mark.asyncio
+async def test_subscribe_no_history_when_not_on_sale(session: AsyncSession, user, region):
+    game_info = _make_game_info()
+    prices = {region.code: _make_region_price(price=59.99, base_price=None)}
+
+    await subscribe_to_game(session, user, game_info, prices)
+
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
+    count = await session.scalar(
+        select(PriceHistory).where(PriceHistory.game_id == game.id)
+    )
+    assert count is None
+
+
+@pytest.mark.asyncio
+async def test_resubscribe_does_not_duplicate_active_sale_history(session: AsyncSession, user, region):
+    game_info = _make_game_info()
+    prices = {region.code: _make_region_price(price=29.99, base_price=59.99)}
+
+    await subscribe_to_game(session, user, game_info, prices)
+    created = await subscribe_to_game(session, user, game_info, prices)
+
+    assert created is False
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
+    rows = (
+        await session.scalars(select(PriceHistory).where(PriceHistory.game_id == game.id))
+    ).all()
+    assert len(rows) == 1
 
 
 @pytest.mark.asyncio
@@ -314,6 +367,59 @@ async def test_sync_creates_game_regions_for_new_region(session: AsyncSession, u
     )
     assert gr is not None
     assert gr.current_price == Decimal("59.99")
+
+
+@pytest.mark.asyncio
+async def test_sync_records_active_sale_in_history(session: AsyncSession, user, region, region2):
+    game_info = _make_game_info()
+    prices = {region.code: _make_region_price(ps_id="EP0001-PPSA00001_00-TESTGAME")}
+    await subscribe_to_game(session, user, game_info, prices)
+
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
+
+    mock_rp = RegionPrice(
+        ps_id="UP0001-PPSA00001_00-TESTGAME", price=29.99, currency="$",
+        base_price=59.99, discount_text="-50%",
+        discount_end=datetime(2026, 7, 16, 6, 59, tzinfo=timezone.utc),
+    )
+    with patch("services.subscription._find_region_price", new=AsyncMock(return_value=mock_rp)):
+        await sync_subscriptions_for_new_region(session, user, region2)
+
+    rows = (
+        await session.scalars(
+            select(PriceHistory).where(
+                PriceHistory.game_id == game.id,
+                PriceHistory.region_id == region2.id,
+            )
+        )
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].price == Decimal("29.99")
+    assert rows[0].discount_end == mock_rp.discount_end
+
+
+@pytest.mark.asyncio
+async def test_sync_no_history_when_not_on_sale(session: AsyncSession, user, region, region2):
+    game_info = _make_game_info()
+    prices = {region.code: _make_region_price(ps_id="EP0001-PPSA00001_00-TESTGAME")}
+    await subscribe_to_game(session, user, game_info, prices)
+
+    game = await session.scalar(select(Game).where(Game.composite_key == game_info.composite_key))
+
+    mock_rp = RegionPrice(
+        ps_id="UP0001-PPSA00001_00-TESTGAME", price=59.99, currency="$",
+        base_price=None, discount_text=None,
+    )
+    with patch("services.subscription._find_region_price", new=AsyncMock(return_value=mock_rp)):
+        await sync_subscriptions_for_new_region(session, user, region2)
+
+    count = await session.scalar(
+        select(PriceHistory).where(
+            PriceHistory.game_id == game.id,
+            PriceHistory.region_id == region2.id,
+        )
+    )
+    assert count is None
 
 
 @pytest.mark.asyncio

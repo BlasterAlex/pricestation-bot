@@ -115,7 +115,7 @@ async def test_sorted_newest_first(session: AsyncSession, user, region, user_reg
         await _subscribe(session, user, g, created_at=base + timedelta(hours=i))
 
     _, items = await get_user_subscriptions_page(session, user.telegram_id, page=0, page_size=15)
-    titles = [gi.title for gi, _ in items]
+    titles = [gi.title for _, gi, _ in items]
     assert titles[0] == "Game 2"
     assert titles[-1] == "Game 0"
 
@@ -145,8 +145,8 @@ async def test_pagination_no_overlap_between_pages(session: AsyncSession, user, 
     _, page0 = await get_user_subscriptions_page(session, user.telegram_id, page=0, page_size=3)
     _, page1 = await get_user_subscriptions_page(session, user.telegram_id, page=1, page_size=3)
 
-    titles0 = {gi.title for gi, _ in page0}
-    titles1 = {gi.title for gi, _ in page1}
+    titles0 = {gi.title for _, gi, _ in page0}
+    titles1 = {gi.title for _, gi, _ in page1}
     assert titles0.isdisjoint(titles1)
 
 
@@ -159,7 +159,7 @@ async def test_prices_populated_from_user_region(session: AsyncSession, user, re
     await _subscribe(session, user, game)
 
     _, items = await get_user_subscriptions_page(session, user.telegram_id, page=0, page_size=15)
-    _, prices = items[0]
+    _, _, prices = items[0]
     assert region.code in prices
     rp = prices[region.code]
     assert rp.price == 39.99
@@ -172,7 +172,7 @@ async def test_prices_empty_when_user_has_no_regions(session: AsyncSession, user
     await _subscribe(session, user, game)
 
     _, items = await get_user_subscriptions_page(session, user.telegram_id, page=0, page_size=15)
-    _, prices = items[0]
+    _, _, prices = items[0]
     assert prices == {}
 
 
@@ -186,7 +186,7 @@ async def test_prices_only_from_user_regions(
     await _subscribe(session, user, game)
 
     _, items = await get_user_subscriptions_page(session, user.telegram_id, page=0, page_size=15)
-    _, prices = items[0]
+    _, _, prices = items[0]
     assert region.code in prices
     assert region2.code not in prices
 
@@ -200,7 +200,7 @@ async def test_currency_taken_from_region(session: AsyncSession, user, region, u
     await _subscribe(session, user, game)
 
     _, items = await get_user_subscriptions_page(session, user.telegram_id, page=0, page_size=15)
-    _, prices = items[0]
+    _, _, prices = items[0]
     assert prices[region.code].currency == "₺"
 
 
@@ -219,7 +219,7 @@ async def test_discount_end_formatted_as_string(session: AsyncSession, user, reg
     await _subscribe(session, user, game)
 
     _, items = await get_user_subscriptions_page(session, user.telegram_id, page=0, page_size=15)
-    _, prices = items[0]
+    _, _, prices = items[0]
     assert prices[region.code].discount_end == datetime(2025, 12, 31, 18, 0, tzinfo=timezone.utc)
 
 
@@ -233,7 +233,7 @@ async def test_game_info_fields_mapped_correctly(session: AsyncSession, user, re
     await _subscribe(session, user, game)
 
     _, items = await get_user_subscriptions_page(session, user.telegram_id, page=0, page_size=15)
-    gi, _ = items[0]
+    _, gi, _ = items[0]
     assert gi.title == "Spider-Man 2"
     assert gi.ps_id_suffix == "SPIDERMAN2"
     assert gi.type == "FULL_GAME"
