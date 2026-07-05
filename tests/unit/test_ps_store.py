@@ -9,6 +9,7 @@ from services.ps_store import (
     _parse_price,
     _ps_id_suffix,
     get_game_info,
+    ps_id_build_id,
     search_games,
 )
 
@@ -506,6 +507,26 @@ async def test_get_game_info_preorder_discount(make_mock_store):
 
 
 # --- ps_id_suffix ---
+
+def test_ps_id_build_id_standard():
+    assert ps_id_build_id("UP4040-PPSA01949_00-CONTROLUEPS50000") == "PPSA01949"
+
+
+def test_ps_id_build_id_ep_prefix():
+    assert ps_id_build_id("EP4040-PPSA01951_00-CONTROLTR0000000") == "PPSA01951"
+
+
+def test_ps_id_build_id_no_dash():
+    assert ps_id_build_id("NODASH") is None
+
+
+def test_ps_id_build_id_none():
+    assert ps_id_build_id(None) is None
+
+
+def test_ps_id_build_id_empty_string():
+    assert ps_id_build_id("") is None
+
 
 def test_ps_id_suffix_standard():
     assert _ps_id_suffix("UP0006-PPSA20049_00-25STANDARDBUNDLE") == "25STANDARDBUNDLE"

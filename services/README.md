@@ -27,3 +27,13 @@ Shared rows — one sale per `(game, region)`. **Writes:** worker on price drop;
 **Limits:** 3 per region (push), 10 (detail card); extra rows stay in DB. History date mode from `users.history_display_format`.
 
 Used by `subscription.py`, `worker/tasks/price_check`, subscription handlers, `notify`, settings. Card text: `bot/formatters.py`.
+
+---
+
+## `ps_store.py` — Build ID & Save Compatibility
+
+Overview: [`docs/features/cross-region-saves.md`](../docs/features/cross-region-saves.md).
+
+Groups tracked regions by Build ID parsed from existing `ps_id` values so users can see which regional versions share save data. Toggle in `/settings` (`users.show_cross_region_saves`); no extra PS Store requests.
+
+Used by `bot/formatters.py`, search and subscription handlers, settings.

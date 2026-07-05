@@ -260,12 +260,14 @@ async def on_game_select(callback: CallbackQuery, state: FSMContext, session: As
                     entries[index]["prices"] = {r: rp.to_dict() for r, rp in prices.items()}
                     await state.update_data(entries=entries)
 
+    user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username)
     caption = format_game_card(
         game,
         prices,
         rates,
         footer="Want to track prices in more regions?\nAdd a new one: /add_region",
         base_currency=base_currency,
+        show_cross_region_saves=user.show_cross_region_saves,
     )
     game_id = await is_subscribed(session, callback.from_user.id, game.composite_key, game.ps_id_suffix)
     keyboard = unsubscribe_keyboard(game_id) if game_id else subscribe_keyboard(index)

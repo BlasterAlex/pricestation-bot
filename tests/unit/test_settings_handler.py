@@ -7,7 +7,9 @@ from bot.handlers.settings import (
     _currency_label,
     cmd_settings,
     on_currency_select,
+    on_settings_cross_region_toggle,
     on_settings_currency_set,
+    on_settings_history_set,
 )
 from bot.keyboards.inline import (
     currency_suggestions_keyboard,
@@ -32,6 +34,25 @@ def test_settings_main_keyboard():
     kb = settings_main_keyboard()
     callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
     assert callbacks == ["settings:currency", "settings:history", "settings:regions"]
+
+
+def test_settings_main_keyboard_with_cross_region_on():
+    kb = settings_main_keyboard(show_cross_region=True, cross_region_enabled=True)
+    callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+    texts = [btn.text for row in kb.inline_keyboard for btn in row]
+    assert callbacks == [
+        "settings:currency",
+        "settings:history",
+        "settings:cross_region:toggle",
+        "settings:regions",
+    ]
+    assert texts[2] == "💾 Hide save compatible"
+
+
+def test_settings_main_keyboard_with_cross_region_off():
+    kb = settings_main_keyboard(show_cross_region=True, cross_region_enabled=False)
+    texts = [btn.text for row in kb.inline_keyboard for btn in row]
+    assert texts[2] == "💾 Show save compatible"
 
 
 def test_settings_history_keyboard_selected_is_noop():
@@ -87,6 +108,7 @@ def _make_user(preferred_currency: str | None = None) -> MagicMock:
     user = MagicMock()
     user.preferred_currency = preferred_currency
     user.history_display_format = None
+    user.show_cross_region_saves = True
     return user
 
 
@@ -147,6 +169,7 @@ async def test_on_settings_currency_set(mocker, common_mocks):
 
     assert user.preferred_currency == "EUR"
     session.commit.assert_called_once()
+    cb.answer.assert_called_once_with("Display currency: EUR (€)")
 
 
 @pytest.mark.asyncio
@@ -163,3 +186,57 @@ async def test_on_currency_select_sets_currency(mocker, common_mocks):
 
     assert user.preferred_currency == "GBP"
     session.commit.assert_called_once()
+    cb.answer.assert_called_once_with("Display currency: GBP (£)")
+
+
+@pytest.mark.asyncio
+async def test_on_settings_history_set(mocker, common_mocks):
+    user = _make_user()
+    mocker.patch("bot.handlers.settings.get_or_create_user", new_callable=AsyncMock, return_value=user)
+    session = AsyncMock()
+    cb = AsyncMock()
+    cb.data = "settings:history:date"
+    cb.from_user = MagicMock(id=1, username="user")
+    cb.message = AsyncMock()
+
+    await on_settings_history_set(cb, session)
+
+    assert user.history_display_format == "date"
+    session.commit.assert_called_once()
+    cb.answer.assert_called_once_with("Sale history format: Date")
+
+
+@pytest.mark.asyncio
+async def test_on_settings_cross_region_toggle_off(mocker, common_mocks):
+    user = _make_user()
+    user.show_cross_region_saves = True
+    mocker.patch("bot.handlers.settings.get_or_create_user", new_callable=AsyncMock, return_value=user)
+    session = AsyncMock()
+    cb = AsyncMock()
+    cb.data = "settings:cross_region:toggle"
+    cb.from_user = MagicMock(id=1, username="user")
+    cb.message = AsyncMock()
+
+    await on_settings_cross_region_toggle(cb, session)
+
+    assert user.show_cross_region_saves is False
+    session.commit.assert_called_once()
+    cb.answer.assert_called_once_with("Save compatible regions: Hidden")
+
+
+@pytest.mark.asyncio
+async def test_on_settings_cross_region_toggle_on(mocker, common_mocks):
+    user = _make_user()
+    user.show_cross_region_saves = False
+    mocker.patch("bot.handlers.settings.get_or_create_user", new_callable=AsyncMock, return_value=user)
+    session = AsyncMock()
+    cb = AsyncMock()
+    cb.data = "settings:cross_region:toggle"
+    cb.from_user = MagicMock(id=1, username="user")
+    cb.message = AsyncMock()
+
+    await on_settings_cross_region_toggle(cb, session)
+
+    assert user.show_cross_region_saves is True
+    session.commit.assert_called_once()
+    cb.answer.assert_called_once_with("Save compatible regions: Visible")

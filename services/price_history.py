@@ -33,9 +33,9 @@ class UserGameSaleHistory:
 
 
 def resolve_history_format(value: str | None) -> str:
-    if value == HISTORY_FORMAT_DATE:
-        return HISTORY_FORMAT_DATE
-    return HISTORY_FORMAT_DURATION
+    if value is None:
+        return DEFAULT_HISTORY_FORMAT
+    return value
 
 
 def is_active_sale(rp: RegionPrice) -> bool:

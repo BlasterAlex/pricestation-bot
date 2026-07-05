@@ -12,6 +12,7 @@ erDiagram
         varchar username
         varchar preferred_currency
         varchar history_display_format
+        boolean show_cross_region_saves
     }
     regions {
         int id PK
@@ -83,18 +84,21 @@ erDiagram
 
 Telegram users who have interacted with the bot.
 
-| Column                   | Type          | Notes                                                                   |
-|--------------------------|---------------|-------------------------------------------------------------------------|
-| `id`                     | serial PK     |                                                                         |
-| `telegram_id`            | bigint UNIQUE | Telegram user ID                                                        |
-| `username`               | varchar(64)   | nullable                                                                |
-| `created_at`             | timestamptz   | server default `now()`                                                  |
-| `preferred_currency`     | varchar(8)    | ISO 4217 code for display conversion (e.g. `EUR`); `NULL` means `USD`   |
-| `history_display_format` | varchar(16)   | `duration` (default) or `date` for past sale dates; `NULL` → `duration` |
+| Column                    | Type          | Notes                                                                   |
+|---------------------------|---------------|-------------------------------------------------------------------------|
+| `id`                      | serial PK     |                                                                         |
+| `telegram_id`             | bigint UNIQUE | Telegram user ID                                                        |
+| `username`                | varchar(64)   | nullable                                                                |
+| `created_at`              | timestamptz   | server default `now()`                                                  |
+| `preferred_currency`      | varchar(8)    | ISO 4217 code for display conversion (e.g. `EUR`); `NULL` means `USD`   |
+| `history_display_format`  | varchar(16)   | `duration` (default) or `date` for past sale dates; `NULL` → `duration` |
+| `show_cross_region_saves` | boolean       | default `true`; show Build ID compatibility groups on game cards        |
 
 `preferred_currency` is set via `/settings` and controls how prices are converted for display (search results, game cards, price-drop notifications). It accepts any ISO 4217 code supported by the exchange rate API — not limited to PS Store native currencies. Validation happens against live rates at the time the setting is changed.
 
 `history_display_format` is set via `/settings` and controls how past sale timestamps are rendered in subscription history views.
+
+`show_cross_region_saves` is set via `/settings` (visible only when the user tracks 2+ regions) and controls the cross-region save compatibility block on game detail cards.
 
 ---
 

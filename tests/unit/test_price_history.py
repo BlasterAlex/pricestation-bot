@@ -4,9 +4,12 @@ import pytest
 
 from db.models.price_history import PriceHistory
 from services.price_history import (
+    DEFAULT_HISTORY_FORMAT,
+    HISTORY_FORMAT_DATE,
     format_sale_when,
     is_active_sale,
     is_past_sale,
+    resolve_history_format,
     sale_display_at,
 )
 from services.ps_store import RegionPrice
@@ -71,3 +74,12 @@ def test_sale_display_at():
     permanent = PriceHistory(game_id=1, region_id=1, price=10, recorded_at=recorded)
     assert sale_display_at(promo) == ended
     assert sale_display_at(permanent) == recorded
+
+
+def test_resolve_history_format_null_returns_default():
+    assert resolve_history_format(None) == DEFAULT_HISTORY_FORMAT
+
+
+def test_resolve_history_format_returns_stored_value():
+    assert resolve_history_format(HISTORY_FORMAT_DATE) == HISTORY_FORMAT_DATE
+    assert resolve_history_format("duration") == "duration"

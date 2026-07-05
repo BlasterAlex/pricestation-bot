@@ -48,28 +48,46 @@ def _format_tracked_regions(regions) -> str:
     return "\n".join(f"• {locale_flag(r.code)} {r.name}" for r in regions)
 
 
-async def _build_settings_text(session: AsyncSession, user) -> str:
+async def _build_settings_text(session: AsyncSession, user) -> tuple[str, list]:
     regions = await get_user_regions(session, user.id)
     currency = user.preferred_currency or DEFAULT_BASE_CURRENCY
     history = resolve_history_format(user.history_display_format)
     regions_block = _format_tracked_regions(regions)
 
-    return (
-        "⚙️ <b>Settings</b>\n\n"
-        f"<b>Display currency:</b> {_currency_label(currency)}\n"
-        f"<b>Sale history format:</b> {_HISTORY_SHORT[history]}\n"
-        f"\n<b>Tracked regions</b>:\n{regions_block}"
+    lines = [
+        "⚙️ <b>Settings</b>\n",
+        f"<b>Display currency:</b> {_currency_label(currency)}",
+        f"<b>Sale history format:</b> {_HISTORY_SHORT[history]}",
+    ]
+
+    if len(regions) >= 2:
+        visible = user.show_cross_region_saves
+        status = "Visible" if visible else "Hidden"
+        lines.append(f"<b>Save compatible regions:</b> {status}")
+
+    lines.append(f"\n<b>Tracked regions</b>:\n{regions_block}")
+
+    return "\n".join(lines), regions
+
+
+def _settings_keyboard(user, regions: list):
+    return settings_main_keyboard(
+        show_cross_region=len(regions) >= 2,
+        cross_region_enabled=user.show_cross_region_saves,
     )
 
 
 async def _show_settings(message: Message, session: AsyncSession, user) -> None:
-    text = await _build_settings_text(session, user)
-    await message.answer(text, reply_markup=settings_main_keyboard())
+    text, regions = await _build_settings_text(session, user)
+    await message.answer(text, reply_markup=_settings_keyboard(user, regions))
 
 
 async def _edit_settings(callback: CallbackQuery, session: AsyncSession, user) -> None:
-    text = await _build_settings_text(session, user)
-    await callback.message.edit_text(text, reply_markup=settings_main_keyboard())
+    text, regions = await _build_settings_text(session, user)
+    await callback.message.edit_text(
+        text,
+        reply_markup=_settings_keyboard(user, regions),
+    )
 
 
 async def _set_currency(iso: str, user, session: AsyncSession) -> None:
@@ -120,7 +138,7 @@ async def on_settings_currency_set(callback: CallbackQuery, session: AsyncSessio
     user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username)
     await _set_currency(iso, user, session)
     await _edit_settings(callback, session, user)
-    await callback.answer(f"Currency set to {iso}")
+    await callback.answer(f"Display currency: {_currency_label(iso)}")
 
 
 @router.message(SettingsForm.waiting_for_currency, ~F.text.startswith("/"))
@@ -161,7 +179,7 @@ async def on_currency_select(callback: CallbackQuery, state: FSMContext, session
     await _set_currency(iso, user, session)
     await state.clear()
     await _edit_settings(callback, session, user)
-    await callback.answer(f"Currency set to {iso}")
+    await callback.answer(f"Display currency: {_currency_label(iso)}")
 
 
 @router.callback_query(F.data == "settings:history")
@@ -186,7 +204,17 @@ async def on_settings_history_set(callback: CallbackQuery, session: AsyncSession
     user.history_display_format = mode
     await session.commit()
     await _edit_settings(callback, session, user)
-    await callback.answer()
+    await callback.answer(f"Sale history format: {_HISTORY_SHORT[mode]}")
+
+
+@router.callback_query(F.data == "settings:cross_region:toggle")
+async def on_settings_cross_region_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
+    user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username)
+    user.show_cross_region_saves = not user.show_cross_region_saves
+    await session.commit()
+    await _edit_settings(callback, session, user)
+    status = "Visible" if user.show_cross_region_saves else "Hidden"
+    await callback.answer(f"Save compatible regions: {status}")
 
 
 @router.callback_query(F.data == "settings:regions")

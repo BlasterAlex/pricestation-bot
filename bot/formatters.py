@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from services.currency import DEFAULT_BASE_CURRENCY, PS_CURRENCY_MAP, PS_ISO_TO_SYMBOL, convert
 from services.price_history import UserGameSaleHistory, format_sale_when
-from services.ps_store import GameInfo, RegionPrice
+from services.ps_store import GameInfo, RegionPrice, ps_id_build_id
 
 TYPE_EMOJI = {
     "FULL_GAME": "🎮",
@@ -142,6 +142,36 @@ def _card_price_lines(
     return lines
 
 
+def _format_save_compatibility_line(prices: dict[str, RegionPrice]) -> str | None:
+    """Group regions by Build ID; return a display line or None when not applicable."""
+    if len(prices) < 2:
+        return None
+
+    groups: dict[str, list[str]] = {}
+    group_order: list[str] = []
+    for locale, rp in prices.items():
+        build_id = ps_id_build_id(rp.ps_id)
+        if build_id is None:
+            continue
+        if build_id not in groups:
+            groups[build_id] = []
+            group_order.append(build_id)
+        groups[build_id].append(locale)
+
+    grouped_regions = sum(len(locales) for locales in groups.values())
+    if grouped_regions < 2:
+        return None
+
+    if len(group_order) == 1:
+        return "All regions share saves"
+
+    group_lines = [
+        "• " + " ".join(locale_flag(loc) for loc in groups[build_id])
+        for build_id in group_order
+    ]
+    return "Save compatible regions:\n" + "\n".join(group_lines)
+
+
 def format_game_list(
     title: str,
     footer: str,
@@ -210,7 +240,7 @@ def format_past_sales_lines(
 
     lines: list[str] = []
     if sale_history.total_sales > 0:
-        lines.append("\n📉 Past sales:")
+        lines.append("\nPast sales:")
         for region_hist in sale_history.regions:
             if not region_hist.sales:
                 continue
@@ -239,14 +269,22 @@ def format_game_card(
     sale_history: UserGameSaleHistory | None = None,
     history_format: str = "duration",
     history_limit: int = 3,
+    show_cross_region_saves: bool = True,
 ) -> str:
     lines = _game_header(game)
     if prices:
         lines.append("\nPrices by region:")
         lines.extend(_card_price_lines(prices, rates, old_prices, base_currency))
+
+        if show_cross_region_saves:
+            save_line = _format_save_compatibility_line(prices)
+            if save_line:
+                lines.append(f"\n{save_line}")
+
         offer_end = _offer_end_line(prices)
         if offer_end:
             lines.append(f"\nOffer ends <b>{offer_end}</b>")
+
         lines.extend(
             format_past_sales_lines(
                 sale_history,
@@ -256,6 +294,7 @@ def format_game_card(
                 base_currency=base_currency,
             )
         )
+
     body = "\n".join(lines)
     parts = [p for p in (title, body, footer) if p]
     return "\n\n".join(parts)
