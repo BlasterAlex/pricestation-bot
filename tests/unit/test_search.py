@@ -286,6 +286,9 @@ def _make_entry(ps_id: str, base_price: float | None = None, discount_end: datet
 
 @pytest.fixture
 def select_mocks(mocker):
+    user = MagicMock()
+    user.show_cross_region_saves = True
+    mocker.patch("bot.handlers.search.get_or_create_user", new_callable=AsyncMock, return_value=user)
     mocker.patch("bot.handlers.search.is_subscribed", new_callable=AsyncMock, return_value=None)
     mocker.patch("bot.handlers.search.format_game_card", return_value="caption")
     mocker.patch("bot.handlers.search.subscribe_keyboard", return_value=MagicMock())

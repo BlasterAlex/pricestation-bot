@@ -88,10 +88,20 @@ def subscriptions_list_keyboard(
     return builder.as_markup()
 
 
-def settings_main_keyboard() -> InlineKeyboardMarkup:
+def settings_main_keyboard(
+    *,
+    show_cross_region: bool = False,
+    cross_region_enabled: bool = True,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="💱 Change currency", callback_data="settings:currency")
     builder.button(text="📅 History format", callback_data="settings:history")
+    if show_cross_region:
+        label = "Hide save compatible" if cross_region_enabled else "Show save compatible"
+        builder.button(
+            text=f"💾 {label}",
+            callback_data="settings:cross_region:toggle",
+        )
     builder.button(text="🌍 Manage regions", callback_data="settings:regions")
     builder.adjust(1)
     return builder.as_markup()

@@ -5,6 +5,7 @@ from bot.formatters import (
     _card_price_lines,
     _format_offer_end,
     _format_price,
+    _format_save_compatibility_line,
     _game_header,
     _offer_end_line,
     _price_line,
@@ -18,6 +19,9 @@ RATES = {"EUR": 0.92, "INR": 84.0, "TRY": 45.0}
 
 PS_ID = "UP9000-PPSA03016_00-GAME"
 EP_ID = "EP9000-CUSA00001_00-GAME"
+US_CONTROL = "UP4040-PPSA01949_00-CONTROLUEPS50000"
+BR_CONTROL = "UP4040-PPSA01949_00-CONTROLBR0000000"
+TR_CONTROL = "EP4040-PPSA01951_00-CONTROLTR0000000"
 
 GAME = GameInfo(
     title="Test Game",
@@ -405,6 +409,34 @@ def test_format_game_card_offer_end_before_past_sales():
     assert result.index("Past sales") < result.index("<i>Tracking since")
 
 
+def test_format_game_card_save_compatibility_after_past_sales():
+    from services.price_history import RegionSaleHistory, UserGameSaleHistory
+
+    end = datetime(2026, 5, 28, 6, 59, tzinfo=timezone.utc)
+    prices = {
+        "en-us": RegionPrice(19.99, "$", 39.99, "-50%", ps_id=US_CONTROL, discount_end=end),
+        "en-br": RegionPrice(99.0, "R$", 199.0, "-50%", ps_id=BR_CONTROL, discount_end=end),
+    }
+    history = UserGameSaleHistory(
+        tracking_since=datetime(2026, 5, 23, tzinfo=timezone.utc),
+        regions=[
+            RegionSaleHistory(
+                "en-us",
+                "$",
+                [(19.99, datetime(2026, 5, 18, tzinfo=timezone.utc))],
+            )
+        ],
+        total_sales=1,
+    )
+    result = format_game_card(
+        GAME, prices, RATES, sale_history=history, history_format="duration",
+        show_cross_region_saves=True,
+    )
+    assert result.index("All regions share saves") < result.index("Offer ends")
+    assert result.index("Offer ends") < result.index("Past sales")
+    assert result.index("Past sales") < result.index("<i>Tracking since")
+
+
 def test_format_game_card_shows_tracking_without_past_sales():
     from services.price_history import UserGameSaleHistory
 
@@ -417,3 +449,72 @@ def test_format_game_card_shows_tracking_without_past_sales():
     result = format_game_card(GAME, prices, RATES, sale_history=history)
     assert "Past sales" not in result
     assert "<i>Tracking since 04 Jul 2026</i>" in result
+
+
+# --- save compatibility ---
+
+
+def test_save_compatibility_hidden_for_single_region():
+    prices = {"en-us": RegionPrice(9.99, "$", None, None, ps_id=US_CONTROL)}
+    assert _format_save_compatibility_line(prices) is None
+
+
+def test_save_compatibility_all_regions_share_saves():
+    prices = {
+        "en-us": RegionPrice(29.99, "$", None, None, ps_id=US_CONTROL),
+        "en-br": RegionPrice(149.0, "R$", None, None, ps_id=BR_CONTROL),
+    }
+    assert _format_save_compatibility_line(prices) == "All regions share saves"
+
+
+def test_save_compatibility_multiple_groups():
+    prices = {
+        "en-us": RegionPrice(29.99, "$", None, None, ps_id=US_CONTROL),
+        "en-br": RegionPrice(149.0, "R$", None, None, ps_id=BR_CONTROL),
+        "tr-tr": RegionPrice(899.0, "TL", None, None, ps_id=TR_CONTROL),
+    }
+    line = _format_save_compatibility_line(prices)
+    assert line == (
+        "Save compatible regions:\n"
+        f"• {locale_flag('en-us')} {locale_flag('en-br')}\n"
+        f"• {locale_flag('tr-tr')}"
+    )
+    assert "🟢" not in line
+    assert "🔵" not in line
+
+
+def test_save_compatibility_skips_unparseable_ps_id():
+    prices = {
+        "en-us": RegionPrice(29.99, "$", None, None, ps_id=US_CONTROL),
+        "en-gb": RegionPrice(29.99, "£", None, None, ps_id="NODASH"),
+    }
+    assert _format_save_compatibility_line(prices) is None
+
+
+def test_format_game_card_shows_save_compatibility():
+    prices = {
+        "en-us": RegionPrice(29.99, "$", None, None, ps_id=US_CONTROL),
+        "en-br": RegionPrice(149.0, "R$", None, None, ps_id=BR_CONTROL),
+    }
+    result = format_game_card(GAME, prices, RATES, show_cross_region_saves=True)
+    assert result.index("Prices by region:") < result.index("All regions share saves")
+
+
+def test_format_game_card_hides_save_compatibility_when_disabled():
+    prices = {
+        "en-us": RegionPrice(29.99, "$", None, None, ps_id=US_CONTROL),
+        "en-br": RegionPrice(149.0, "R$", None, None, ps_id=BR_CONTROL),
+    }
+    result = format_game_card(GAME, prices, RATES, show_cross_region_saves=False)
+    assert "All regions share saves" not in result
+    assert "Save compatible" not in result
+
+
+def test_format_game_card_save_compatibility_before_offer_end():
+    end = datetime(2026, 5, 22, 22, 59, tzinfo=timezone.utc)
+    prices = {
+        "en-us": RegionPrice(19.99, "$", 39.99, "-50%", ps_id=US_CONTROL, discount_end=end),
+        "en-br": RegionPrice(99.0, "R$", 199.0, "-50%", ps_id=BR_CONTROL, discount_end=end),
+    }
+    result = format_game_card(GAME, prices, RATES, show_cross_region_saves=True)
+    assert result.index("All regions share saves") < result.index("Offer ends")

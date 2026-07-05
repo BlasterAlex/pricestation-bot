@@ -197,6 +197,21 @@ def _parse_str_price_data(price_data: dict) -> tuple[float | None, str | None, f
     return price, _canonical_currency(currency), base_price
 
 
+def ps_id_build_id(ps_id: str | None) -> str | None:
+    """Return the Build ID (concept segment) from a PS Store product ID.
+
+    Example: ``UP4040-PPSA01949_00-CONTROLUEPS50000`` → ``PPSA01949``.
+    Save data is compatible across regional listings that share the same Build ID.
+
+    Returns ``None`` when *ps_id* is absent or does not match the expected shape.
+    """
+    if not ps_id or "-" not in ps_id or "_" not in ps_id:
+        return None
+    middle = ps_id.split("-", 1)[1]
+    build_id = middle.split("_", 1)[0]
+    return build_id or None
+
+
 def _ps_id_suffix(ps_id: str | None) -> str | None:
     """Return the trailing product-code segment of a PS Store product ID.
 

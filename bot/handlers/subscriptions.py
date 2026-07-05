@@ -142,6 +142,7 @@ async def _load_subscribed_game_card(
         sale_history=sale_history,
         history_format=history_format,
         history_limit=history_limit,
+        show_cross_region_saves=user.show_cross_region_saves,
     )
     return text, unsubscribe_keyboard(game_id)
 

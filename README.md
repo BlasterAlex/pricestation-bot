@@ -18,6 +18,7 @@ An automated Telegram bot designed to help gamers find the lowest prices for Pla
 - **Price Tracking:** Subscribe to your favorite games
 - **Smart Notifications:** Get alerts when prices drop or a sale starts
 - **Sale History:** Past sales for subscribed games while you track them
+- **Save Compatibility:** See which tracked regions share compatible saves on the game card
 - **Currency Conversion:** View all prices converted to your preferred currency (USD by default)
 
 ### Commands
@@ -25,7 +26,7 @@ An automated Telegram bot designed to help gamers find the lowest prices for Pla
 | Command             | Description                                                      |
 |---------------------|------------------------------------------------------------------|
 | `/start`            | Welcome message                                                  |
-| `/settings`         | Display currency, tracked regions, sale history format           |
+| `/settings`         | Display currency, tracked regions, and other preferences         |
 | `/search`           | Search for a game and compare prices across your tracked regions |
 | `/subscriptions`    | View your subscribed games with current prices                   |
 
@@ -155,7 +156,7 @@ Migrations run automatically before `bot` and `worker` start.
 |------------------------------------------------------|--------------------------------------------------------------|
 | [`worker/README.md`](worker/README.md)               | Worker jobs: price check, notifications, aggregation window  |
 | [`db/models/README.md`](db/models/README.md)         | Database schema: tables, relationships, key constraints      |
-| [`services/README.md`](services/README.md)           | Services: currency conversion logic, exchange rates, display |
+| [`services/README.md`](services/README.md)           | Business logic: currency, prices, subscriptions, and more    |
 | [`deploy/vector/README.md`](deploy/vector/README.md) | Vector alerting pipeline: sources, transforms, metrics       |
 | [`research/README.md`](research/README.md)           | PS Store search grouping research                            |
 | [`docs/features/`](docs/features/)                   | Feature overviews (product scope, user-facing behaviour)     |
