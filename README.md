@@ -15,6 +15,7 @@ An automated Telegram bot designed to help gamers find the lowest prices for Pla
 
 ### Key Features
 - **Global Search:** Compare prices across multiple regions (TR, US, UA, PL, etc.) in one click
+- **PS Store Links:** Paste a Store URL to open the same game card as after search
 - **Price Tracking:** Subscribe to your favorite games
 - **Smart Notifications:** Get alerts when prices drop or a sale starts
 - **Sale History:** Past sales for subscribed games while you track them
