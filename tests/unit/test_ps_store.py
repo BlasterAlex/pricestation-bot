@@ -2,15 +2,19 @@ from datetime import timezone
 
 import pytest
 
+from clients.ps_store import (
+    _parse_end_time,
+    _parse_price,
+    get_game_info,
+    search_games,
+)
 from services.ps_store import (
     GameInfo,
     RegionPrice,
-    _parse_end_time,
-    _parse_price,
-    _ps_id_suffix,
-    get_game_info,
+    preferred_ps_prefix,
     ps_id_build_id,
-    search_games,
+    ps_id_suffix,
+    remap_ps_id_prefix,
 )
 
 # --- normalize_title ---
@@ -119,7 +123,7 @@ def make_mock_store(mocker):
         mock_session.get = mocker.Mock(return_value=mock_resp)
         mock_session.__aenter__ = mocker.AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = mocker.AsyncMock(return_value=False)
-        mocker.patch("services.ps_store.aiohttp.ClientSession", return_value=mock_session)
+        mocker.patch("clients.ps_store.aiohttp.ClientSession", return_value=mock_session)
     return _factory
 
 
@@ -529,25 +533,25 @@ def test_ps_id_build_id_empty_string():
 
 
 def test_ps_id_suffix_standard():
-    assert _ps_id_suffix("UP0006-PPSA20049_00-25STANDARDBUNDLE") == "25STANDARDBUNDLE"
+    assert ps_id_suffix("UP0006-PPSA20049_00-25STANDARDBUNDLE") == "25STANDARDBUNDLE"
 
 def test_ps_id_suffix_ep_prefix():
-    assert _ps_id_suffix("EP0082-PPSA01284_00-FFVIIREBIRTH0000") == "FFVIIREBIRTH0000"
+    assert ps_id_suffix("EP0082-PPSA01284_00-FFVIIREBIRTH0000") == "FFVIIREBIRTH0000"
 
 def test_ps_id_suffix_no_dash():
-    assert _ps_id_suffix("NODASH") is None
+    assert ps_id_suffix("NODASH") is None
 
 def test_ps_id_suffix_none():
-    assert _ps_id_suffix(None) is None
+    assert ps_id_suffix(None) is None
 
 def test_ps_id_suffix_empty_string():
-    assert _ps_id_suffix("") is None
+    assert ps_id_suffix("") is None
 
 def test_ps_id_suffix_matches_across_regions():
     """UP and EP variants of the same product share the same suffix."""
     assert (
-        _ps_id_suffix("UP0006-PPSA20049_00-25STANDARDBUNDLE")
-        == _ps_id_suffix("EP0006-PPSA20050_00-25STANDARDBUNDLE")
+        ps_id_suffix("UP0006-PPSA20049_00-25STANDARDBUNDLE")
+        == ps_id_suffix("EP0006-PPSA20050_00-25STANDARDBUNDLE")
     )
 
 
@@ -652,7 +656,7 @@ def make_error_store(mocker):
         mock_session.get = mocker.Mock(return_value=mock_resp)
         mock_session.__aenter__ = mocker.AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = mocker.AsyncMock(return_value=False)
-        mocker.patch("services.ps_store.aiohttp.ClientSession", return_value=mock_session)
+        mocker.patch("clients.ps_store.aiohttp.ClientSession", return_value=mock_session)
     return _factory
 
 
@@ -733,3 +737,24 @@ async def test_get_game_info_returns_none_when_product_not_in_concept(make_mock_
         "webctas": [],
     }]}}}})
     assert await get_game_info(GAME_INFO_PS_ID) is None
+
+
+# --- preferred_ps_prefix / remap_ps_id_prefix ---
+
+UP = "UP6312-PPSA32718_00-AUGUSTA000000000"
+
+
+def test_preferred_prefix_us_up():
+    assert preferred_ps_prefix("en-us") == "UP"
+
+
+def test_preferred_prefix_eu_ep():
+    assert preferred_ps_prefix("en-gb") == "EP"
+
+
+def test_remap_up_to_ep():
+    assert remap_ps_id_prefix(UP, "EP") == "EP6312-PPSA32718_00-AUGUSTA000000000"
+
+
+def test_remap_same_prefix_unchanged():
+    assert remap_ps_id_prefix(UP, "UP") == UP

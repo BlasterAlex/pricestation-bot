@@ -11,6 +11,7 @@ from bot.metrics import (
     subscriptions_created,
     subscriptions_removed,
 )
+from clients.ps_store import get_game_info, search_games
 from db.models.game import Game
 from db.models.game_region import GameRegion
 from db.models.region import Region
@@ -18,7 +19,7 @@ from db.models.subscription import Subscription
 from db.models.user import User
 from db.models.user_region import UserRegion
 from services.price_history import record_active_sales_on_subscribe
-from services.ps_store import GameInfo, RegionPrice, best_ps_id, get_game_info, is_effectively_ascii, search_games
+from services.ps_store import GameInfo, RegionPrice, best_ps_id, is_effectively_ascii
 
 logger = logging.getLogger(__name__)
 

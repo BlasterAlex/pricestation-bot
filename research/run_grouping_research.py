@@ -39,7 +39,8 @@ sys.path.insert(0, str(ROOT))
 
 from dataset import GAMES, REGIONS  # noqa: E402
 
-from services.ps_store import GameInfo, RegionPrice, _search_games  # noqa: E402
+from clients.ps_store import _search_games  # noqa: E402
+from services.ps_store import GameInfo, RegionPrice  # noqa: E402
 
 RESEARCH_DIR  = Path(__file__).parent
 RESULTS_DIR   = RESEARCH_DIR / "results"

@@ -5,9 +5,8 @@ import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.formatters import format_past_sales_lines
 from db.models import Game, GameRegion, PriceHistory, Subscription, UserRegion
-from services.price_history import UserGameSaleHistory, get_user_game_sale_history
+from services.price_history import get_user_game_sale_history
 from services.ps_store import GameInfo, RegionPrice
 from services.subscription import subscribe_to_game
 from worker.tasks.price_check import _check_game_region
@@ -122,17 +121,6 @@ async def test_history_has_more_when_over_limit(
     assert history is not None
     assert history.has_more is True
     assert len(history.regions[0].sales) == 3
-
-
-def test_format_past_sales_shows_tracking_when_no_sales():
-    history = UserGameSaleHistory(
-        tracking_since=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        regions=[],
-        total_sales=0,
-    )
-    lines = format_past_sales_lines(history, "duration", limit_per_region=3)
-    assert lines == ["\n<i>Tracking since 01 Jan 2026</i>"]
-    assert "Past sales" not in "".join(lines)
 
 
 @pytest.mark.asyncio

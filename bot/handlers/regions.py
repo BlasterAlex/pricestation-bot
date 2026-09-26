@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.keyboards.inline import cancel_keyboard, ps_regions_keyboard, settings_regions_keyboard
 from bot.states.subscription import RegionForm
-from services.ps_api import get_ps_regions
+from clients.ps_regions import get_ps_regions
 from services.region import (
     add_user_region,
     get_or_create_region,
@@ -34,7 +34,7 @@ async def _do_region_search(message: Message, session: AsyncSession, query: str)
 
     if not matches:
         await message.answer(
-            "No results found. Try a different name:",
+            "No results found. Try a different name.",
             reply_markup=cancel_keyboard(),
         )
         return
@@ -58,12 +58,12 @@ async def on_settings_regions_add(callback: CallbackQuery, state: FSMContext) ->
 
 @router.message(RegionForm.waiting_for_search, ~F.text.startswith("/"))
 async def on_region_search(
-    message: Message, state: FSMContext, session: AsyncSession
+    message: Message, session: AsyncSession
 ) -> None:
     query = message.text.strip()
     if not query:
         return
-    await state.clear()
+    # Stay in waiting_for_search until cancel or region_add.
     await _do_region_search(message, session, query)
 
 

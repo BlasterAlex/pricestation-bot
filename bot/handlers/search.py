@@ -9,8 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.formatters import format_game_card, format_game_list
 from bot.keyboards.inline import search_results_keyboard, subscribe_keyboard, unsubscribe_keyboard
 from bot.states.subscription import SearchForm
+from clients.ps_store import get_game_info, search_games
 from services.currency import DEFAULT_BASE_CURRENCY, get_rates
-from services.ps_store import GameInfo, RegionPrice, best_ps_id, get_game_info, search_games
+from services.ps_store import GameInfo, RegionPrice, best_ps_id
 from services.region import get_user_regions
 from services.subscription import is_subscribed
 from services.user import get_or_create_user

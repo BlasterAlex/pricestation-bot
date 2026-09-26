@@ -344,6 +344,20 @@ def test_format_game_card_no_offer_end_without_discount():
 
 # --- past sales ---
 
+def test_format_past_sales_shows_tracking_when_no_sales():
+    from bot.formatters import format_past_sales_lines
+    from services.price_history import UserGameSaleHistory
+
+    history = UserGameSaleHistory(
+        tracking_since=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        regions=[],
+        total_sales=0,
+    )
+    lines = format_past_sales_lines(history, "duration", limit_per_region=3)
+    assert lines == ["\n<i>Tracking since 01 Jan 2026</i>"]
+    assert "Past sales" not in "".join(lines)
+
+
 def test_format_past_sales_with_sales():
     from bot.formatters import format_past_sales_lines
     from services.price_history import RegionSaleHistory, UserGameSaleHistory
