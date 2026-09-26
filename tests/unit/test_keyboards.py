@@ -1,4 +1,5 @@
 from bot.keyboards.inline import (
+    link_editions_keyboard,
     price_drop_keyboard,
     subscribe_keyboard,
     subscriptions_list_keyboard,
@@ -29,6 +30,32 @@ def test_price_drop_keyboard():
     kb = price_drop_keyboard(42)
     callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
     assert callbacks == ["subs_detail:42", "unsubscribe:42"]
+
+
+def test_link_editions_keyboard_uses_index_callbacks():
+    games = [_game("Standard Edition"), _game("Deluxe Edition", "PREMIUM_EDITION")]
+
+    kb = link_editions_keyboard(games)
+
+    buttons = [row[0] for row in kb.inline_keyboard]
+    assert [button.callback_data for button in buttons] == [
+        "link_edition:0",
+        "link_edition:1",
+    ]
+    assert [button.text for button in buttons] == [
+        "🎮 Standard Edition",
+        "💎 Deluxe Edition",
+    ]
+
+
+def test_link_editions_keyboard_disambiguates_duplicate_titles():
+    games = [_game("Same Title"), _game("Same Title", "PREMIUM_EDITION")]
+
+    kb = link_editions_keyboard(games)
+
+    labels = [row[0].text for row in kb.inline_keyboard]
+    assert len(set(labels)) == 2
+    assert all("Same Title" in label for label in labels)
 
 
 def test_ps_regions_keyboard_tracked_is_noop():

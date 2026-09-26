@@ -1,7 +1,7 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.formatters import TYPE_EMOJI, locale_flag
+from bot.formatters import TYPE_EMOJI, TYPE_LABEL, locale_flag
 from services.ps_store import GameInfo
 
 
@@ -45,6 +45,21 @@ def _add_game_buttons(builder: InlineKeyboardBuilder, games: list[GameInfo]) -> 
 def search_results_keyboard(games: list[GameInfo]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     _add_game_buttons(builder, games)
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def link_editions_keyboard(games: list[GameInfo]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    duplicate_titles = {
+        game.title for game in games if sum(other.title == game.title for other in games) > 1
+    }
+    for i, game in enumerate(games):
+        emoji = TYPE_EMOJI.get(game.type, "🎮")
+        label = f"{emoji} {game.title}"
+        if game.title in duplicate_titles:
+            label = f"{label} — {TYPE_LABEL.get(game.type, game.type)}"
+        builder.button(text=label, callback_data=f"link_edition:{i}")
     builder.adjust(1)
     return builder.as_markup()
 

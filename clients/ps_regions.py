@@ -31,8 +31,8 @@ async def get_ps_regions() -> list[dict]:
         for country in group.get("countries", []):
             countries.append(
                 {
-                    "name": country["countryName"],
-                    "locale": country["localeCode"],
+                    "name": country["countryName"].strip(),
+                    "locale": country["localeCode"].strip(),
                 }
             )
 

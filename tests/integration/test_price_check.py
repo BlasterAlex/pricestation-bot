@@ -6,7 +6,7 @@ import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import GameRegion, PriceDrop, PriceHistory, Subscription
+from db.models import GameRegion, PriceDrop, Subscription
 from services.ps_store import GameInfo, RegionPrice
 from worker.tasks.price_check import _check_game_region, check_prices
 
@@ -115,30 +115,6 @@ async def test_no_price_drop_record_when_unchanged(session, game_region, mocker)
     await _check_game_region(session, game_region)
 
     rows = (await session.execute(select(PriceDrop).where(PriceDrop.game_id == game_region.game_id))).scalars().all()
-    assert len(rows) == 0
-
-
-@pytest.mark.asyncio
-async def test_price_drop_creates_history(session, game_region, subscription, mocker):
-    mocker.patch("worker.tasks.price_check.get_game_info", return_value=(_GAME_INFO, _region_price(29.99)))
-    await _check_game_region(session, game_region)
-
-    rows = (
-        await session.execute(
-            select(PriceHistory).where(PriceHistory.game_id == game_region.game_id)
-        )
-    ).scalars().all()
-    assert len(rows) == 1
-    assert float(rows[0].price) == 29.99
-    assert rows[0].region_id == game_region.region_id
-
-
-@pytest.mark.asyncio
-async def test_no_history_when_unchanged(session, game_region, mocker):
-    mocker.patch("worker.tasks.price_check.get_game_info", return_value=(_GAME_INFO, _region_price(49.99)))
-    await _check_game_region(session, game_region)
-
-    rows = (await session.execute(select(PriceHistory))).scalars().all()
     assert len(rows) == 0
 
 

@@ -7,10 +7,10 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 
+from clients.ps_store import get_game_info
 from db.models import GameRegion, PriceDrop, PriceHistory
 from db.session import AsyncSessionFactory
 from services import price
-from services.ps_store import get_game_info
 from worker.metrics import (
     price_check_duration,
     price_check_last_run,
