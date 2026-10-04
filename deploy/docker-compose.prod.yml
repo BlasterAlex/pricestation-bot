@@ -1,3 +1,5 @@
+name: pricestation
+
 services:
   db:
     container_name: pricestation-db
