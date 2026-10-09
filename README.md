@@ -125,6 +125,7 @@ Create `deploy/.env` before running. All variables are required unless marked op
 | `PRICE_CHECK_CRON`         | Cron schedule for the price check job                               | `0 */4 * * *`  |
 | `NOTIFY_CRON`              | Cron schedule for the notification job                              | `10 */4 * * *` |
 | `NOTIFY_AGGREGATION_HOURS` | Delay before sending a drop notification (batches regional updates) | `9`            |
+| `MISFIRE_GRACE_SECONDS`    | How late a paused worker job may still run, in seconds              | `10800`        |
 | `LOG_LEVEL`                | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`)                 | `INFO`         |
 | `ALERT_BOT_TOKEN`          | *(optional)* Bot token for Vector → Telegram alerts                 | -              |
 | `ALERT_CHAT_ID`            | *(optional)* Chat ID for Vector → Telegram alerts                   | -              |

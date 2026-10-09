@@ -63,6 +63,7 @@ The key insight: `PriceDrop` is just a trigger - it doesn't store prices. The no
 | `PRICE_CHECK_CRON`         | `0 */4 * * *`  | How often prices are fetched            |
 | `NOTIFY_CRON`              | `10 */4 * * *` | How often pending drops are dispatched  |
 | `NOTIFY_AGGREGATION_HOURS` | `9`            | Minimum age of a drop before it is sent |
+| `MISFIRE_GRACE_SECONDS`    | `10800`        | How late a paused job may still run     |
 
 ---
 

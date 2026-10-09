@@ -14,6 +14,22 @@ from worker.tasks.price_check import check_prices
 setup_logging()
 
 
+def register_jobs(scheduler: AsyncIOScheduler, bot: Bot) -> None:
+    scheduler.add_job(
+        check_prices,
+        CronTrigger.from_crontab(settings.PRICE_CHECK_CRON),
+        misfire_grace_time=settings.MISFIRE_GRACE_SECONDS,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        send_notifications,
+        CronTrigger.from_crontab(settings.NOTIFY_CRON),
+        args=[bot],
+        misfire_grace_time=settings.MISFIRE_GRACE_SECONDS,
+        coalesce=True,
+    )
+
+
 async def main() -> None:
     start_http_server(8000)
     bot = Bot(
@@ -22,8 +38,7 @@ async def main() -> None:
     )
 
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(check_prices, CronTrigger.from_crontab(settings.PRICE_CHECK_CRON))
-    scheduler.add_job(send_notifications, CronTrigger.from_crontab(settings.NOTIFY_CRON), args=[bot])
+    register_jobs(scheduler, bot)
     scheduler.start()
     try:
         await asyncio.Event().wait()

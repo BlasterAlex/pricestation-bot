@@ -99,7 +99,7 @@ end
 
 [transforms.throttle_metric_alerts]
 type = "throttle"
-inputs = ["detect_increases", "detect_stale_job"]
+inputs = ["detect_increases"]
 threshold = 1
 window_secs = 300
 key_field = "metric_name"
@@ -138,17 +138,36 @@ function process(event, emit)
     emit({ log = {
       metric_name = "price_check_last_run_timestamp",
       tags_str = "",
-      delta = tostring(math.floor((os.time() - val) / 3600)) .. "h stale",
+      delta = tostring(math.floor((os.time() - val) / 3600)),
     }})
   end
 end
 """
 
+[transforms.throttle_stale_job]
+type = "throttle"
+inputs = ["detect_stale_job"]
+threshold = 1
+window_secs = 3600
+key_field = "metric_name"
+
+[transforms.format_stale_alert]
+type = "remap"
+inputs = ["throttle_stale_job"]
+source = '''
+  _hours = string!(.delta)
+  .message = encode_json({
+    "chat_id": to_int!("${ALERT_CHAT_ID}"),
+    "text": "<b>🚨 PriceStation Metric Alert</b>\n<code>price_check_last_run_timestamp</code>\nпроверка цен не завершалась <b>" + _hours + " ч</b>",
+    "parse_mode": "HTML"
+  })
+'''
+
 # Sink
 
 [sinks.telegram]
 type = "http"
-inputs = ["format_log_alert", "format_metric_alert"]
+inputs = ["format_log_alert", "format_metric_alert", "format_stale_alert"]
 uri = "https://api.telegram.org/bot${ALERT_BOT_TOKEN}/sendMessage"
 method = "post"
 encoding.codec = "raw_message"
