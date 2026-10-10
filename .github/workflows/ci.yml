@@ -30,7 +30,7 @@ jobs:
         run: docker compose -f deploy/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from test
       - name: Extract coverage report
         if: always()
-        run: docker cp test:/app/coverage.xml coverage.xml || true
+        run: docker compose -f deploy/docker-compose.test.yml cp test:/app/coverage.xml coverage.xml
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
