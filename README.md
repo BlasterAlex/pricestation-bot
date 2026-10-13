@@ -159,6 +159,6 @@ Migrations run automatically before `bot` and `worker` start.
 | [`worker/README.md`](worker/README.md)               | Worker jobs: price check, notifications, aggregation window  |
 | [`db/models/README.md`](db/models/README.md)         | Database schema: tables, relationships, key constraints      |
 | [`services/README.md`](services/README.md)           | Business logic: currency, prices, subscriptions, and more    |
-| [`deploy/vector/README.md`](deploy/vector/README.md) | Vector alerting pipeline: sources, transforms, metrics       |
+| [`deploy/alerts/README.md`](deploy/alerts/README.md) | Vector alerting pipeline: sources, transforms, metrics       |
 | [`research/README.md`](research/README.md)           | PS Store search grouping research                            |
 | [`docs/features/`](docs/features/)                   | Feature overviews (product scope, user-facing behaviour)     |

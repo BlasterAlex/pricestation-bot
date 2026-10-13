@@ -65,7 +65,7 @@ services:
     image: timberio/vector:0.42.0-alpine
     command: ["--config", "/etc/vector/vector.toml"]
     volumes:
-      - ./vector/vector.toml:/etc/vector/vector.toml:ro
+      - ./alerts/vector.toml:/etc/vector/vector.toml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     env_file: .env
     depends_on:
