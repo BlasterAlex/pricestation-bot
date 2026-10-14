@@ -37,7 +37,7 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -53,7 +53,7 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000')" ]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')" ]
       interval: 5s
       timeout: 3s
       retries: 5
