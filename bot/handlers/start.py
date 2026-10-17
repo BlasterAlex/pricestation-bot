@@ -16,5 +16,6 @@ async def cmd_start(message: Message, session: AsyncSession) -> None:
         "Hi! I'm PriceStation — I track prices in the PS Store.\n\n"
         "/settings — display currency, regions, and preferences\n"
         "/search — find a game and subscribe to price drops\n"
-        "/subscriptions — manage your subscriptions"
+        "/subscriptions — manage your subscriptions\n"
+        "/about — about the bot and GitHub issues"
     )

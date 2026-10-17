@@ -21,6 +21,7 @@ _BOT_COMMANDS = [
     BotCommand(command="settings", description="Display currency, regions, and preferences"),
     BotCommand(command="search", description="Find a game and subscribe to price drops"),
     BotCommand(command="subscriptions", description="Manage your subscriptions"),
+    BotCommand(command="about", description="About the bot and GitHub issues"),
 ]
 
 

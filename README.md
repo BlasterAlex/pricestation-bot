@@ -30,6 +30,7 @@ An automated Telegram bot designed to help gamers find the lowest prices for Pla
 | `/settings`         | Display currency, tracked regions, and other preferences         |
 | `/search`           | Search for a game and compare prices across your tracked regions |
 | `/subscriptions`    | View your subscribed games with current prices                   |
+| `/about`            | About the bot and a link to GitHub Issues                        |
 
 ---
 
