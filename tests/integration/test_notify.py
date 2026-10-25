@@ -130,6 +130,27 @@ async def test_send_message_called_when_no_cover(
     bot.send_photo.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_notification_includes_discount_end(
+    session, game_region, subscription, user_with_region, price_drop, mocker
+):
+    game_region.base_price = 59.99
+    game_region.discount_text = "-20%"
+    game_region.discount_end = datetime(2026, 11, 4, 23, 59, tzinfo=timezone.utc)
+    await session.flush()
+
+    mocker.patch("worker.tasks.notify.AsyncSessionFactory", _factory(session))
+    mocker.patch("worker.tasks.notify.get_rates", AsyncMock(return_value={}))
+    bot = AsyncMock()
+
+    await send_notifications(bot)
+
+    bot.send_message.assert_called_once()
+    text = bot.send_message.call_args.args[1]
+    assert "Offer ends <b>04 Nov 2026 23:59 UTC</b>" in text
+    assert price_drop.notified_at is not None
+
+
 # ── region filtering ──────────────────────────────────────────────────────────
 
 

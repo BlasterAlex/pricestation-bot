@@ -55,18 +55,13 @@ async def send_notifications(bot: Bot) -> None:
                     if gr.current_price is None:
                         continue
 
-                    currency = gr.region.currency
-                    discount_end_str = (
-                        gr.discount_end.strftime("%Y-%m-%d %H:%M") if gr.discount_end else None
-                    )
-
                     prices[code] = RegionPrice(
                         price=float(gr.current_price),
-                        currency=currency,
+                        currency=gr.region.currency,
                         base_price=float(gr.base_price) if gr.base_price is not None else None,
                         discount_text=gr.discount_text,
                         ps_id=gr.ps_id,
-                        discount_end=discount_end_str,
+                        discount_end=gr.discount_end,
                     )
 
                     if gr.old_price is not None:
