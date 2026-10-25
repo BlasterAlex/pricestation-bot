@@ -31,7 +31,7 @@ class _TransientPollingFilter(logging.Filter):
         if (
             record.name == "aiogram.dispatcher"
             and record.levelno == logging.ERROR
-            and "Failed to fetch updates - TelegramRetryAfter" in record.getMessage()
+            and "Failed to fetch updates - " in record.getMessage()
         ):
             record.levelno = logging.WARNING
             record.levelname = "WARNING"
