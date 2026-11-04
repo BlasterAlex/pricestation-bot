@@ -1,5 +1,6 @@
 from aiogram import Bot
 
+from bot.card_delivery import BotChat, send_card
 from bot.formatters import format_game_card
 from bot.keyboards.inline import price_drop_keyboard
 from services.currency import DEFAULT_BASE_CURRENCY
@@ -32,7 +33,4 @@ async def notify_price_drop(
         history_limit=3,
     )
     keyboard = price_drop_keyboard(game_id)
-    if game_info.cover_url:
-        await bot.send_photo(telegram_id, game_info.cover_url, caption=text, reply_markup=keyboard)
-    else:
-        await bot.send_message(telegram_id, text, reply_markup=keyboard)
+    await send_card(BotChat(bot, telegram_id), text, keyboard, game_info.cover_url)
