@@ -5,6 +5,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.card_delivery import send_card
 from bot.formatters import format_game_card, format_game_list
 from bot.keyboards.inline import subscriptions_list_keyboard, unsubscribe_keyboard
 from bot.metrics import bot_handler_errors
@@ -90,7 +91,7 @@ async def _load_subscribed_game_card(
     *,
     history_limit: int,
     title: str = "",
-) -> tuple[str, InlineKeyboardMarkup] | None:
+) -> tuple[str, InlineKeyboardMarkup, str | None] | None:
     user = await get_or_create_user(session, telegram_id, username)
     sub = await session.scalar(
         select(Subscription).where(Subscription.user_id == user.id, Subscription.game_id == game_id)
@@ -144,7 +145,7 @@ async def _load_subscribed_game_card(
         history_limit=history_limit,
         show_cross_region_saves=user.show_cross_region_saves,
     )
-    return text, unsubscribe_keyboard(game_id)
+    return text, unsubscribe_keyboard(game_id), game.cover_url
 
 
 @router.callback_query(F.data.startswith("subs_detail:"))
@@ -162,8 +163,8 @@ async def on_subs_detail(callback: CallbackQuery, session: AsyncSession) -> None
         await callback.message.answer("Subscription not found.")
         return
 
-    text, keyboard = result
-    await callback.message.answer(text, reply_markup=keyboard)
+    text, keyboard, cover_url = result
+    await send_card(callback.message, text, keyboard, cover_url)
 
 
 async def _build_subs_page(
